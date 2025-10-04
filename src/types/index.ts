@@ -18,22 +18,27 @@ export interface AIInteraction {
 }
 
 export interface AfricasTalkingWebhook {
-  sessionId: string;
+  // Always present parameters (official AT docs)
+  isActive: string;              // "1" for ongoing call, "0" for final request
+  sessionId: string;             // Unique identifier for call session
+  direction: string;             // "inbound" or "outbound"
+  callerNumber: string;          // Phone number in international format
+  destinationNumber: string;     // Your AT phone number
+  
+  // Conditional parameters
+  dtmfDigits?: string;           // Present after GetDigits response
+  recordingUrl?: string;         // Present in final request if call was recorded
+  durationInSeconds?: number;    // Present in final request
+  currencyCode?: string;         // Present in final request (e.g. KES, USD)
+  amount?: number;               // Present in final request (call cost)
+  
+  // Legacy/additional fields that might be present
   phoneNumber?: string;
-  callerNumber?: string;
-  destinationNumber?: string;
   networkCode?: string;
-  direction?: string;
-  isActive: string;
   callSessionState?: string;
   status?: string;
-  dtmfDigits?: string;
-  recordingUrl?: string;
   callRecordingUrl?: string;
-  durationInSeconds?: number;
   callRecordingDurationInSeconds?: number;
-  currencyCode?: string;
-  amount?: number;
   hangupCause?: string;
   callStartTime?: string;
   callEndTime?: string;
