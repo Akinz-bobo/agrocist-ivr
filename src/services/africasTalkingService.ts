@@ -131,8 +131,7 @@ class AfricasTalkingService {
   }
   
   private getImmediateRecordingXML(): string {
-    return `<Record timeout="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
-    <Say voice="woman">Please describe your livestock concern. You can start speaking now or wait for the beep. Press hash when finished.</Say>
+    return `<Record timeout="30" trimSilence="true" playBeep="false" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
   </Record>`;
   }
   
