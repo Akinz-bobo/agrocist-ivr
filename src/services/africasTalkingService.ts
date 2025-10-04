@@ -132,6 +132,7 @@ class AfricasTalkingService {
   
   private getImmediateRecordingXML(): string {
     return `<Record timeout="30" trimSilence="true" playBeep="false" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+    <Say voice="woman"><break time="3s"/>Please describe your livestock concern or question. Be as specific as possible about the animal type, symptoms, or issue you're experiencing.</Say>
   </Record>`;
   }
   
