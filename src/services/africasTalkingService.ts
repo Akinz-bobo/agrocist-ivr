@@ -83,6 +83,13 @@ class AfricasTalkingService {
 </Response>`;
   }
   
+  generateImmediateRecordingResponse(): string {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${this.getImmediateRecordingXML()}
+</Response>`;
+  }
+  
   generateErrorResponse(): string {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -120,6 +127,12 @@ class AfricasTalkingService {
   private getRecordingXML(): string {
     return `<Record timeout="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
     <Say voice="woman">Please describe your concern after the beep. Press hash when you're finished, or wait for the recording to end automatically.</Say>
+  </Record>`;
+  }
+  
+  private getImmediateRecordingXML(): string {
+    return `<Record timeout="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+    <Say voice="woman">Please describe your livestock concern. You can start speaking now or wait for the beep. Press hash when finished.</Say>
   </Record>`;
   }
   

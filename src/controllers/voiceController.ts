@@ -103,9 +103,7 @@ class VoiceController {
           break;
           
         case 2: // Veterinary Help
-          responseXML = africasTalkingService.generateRecordingResponse(
-            "Please describe your livestock concern or question. Be as specific as possible about the animal type, symptoms, or issue you're experiencing."
-          );
+          responseXML = africasTalkingService.generateImmediateRecordingResponse();
           break;
           
         case 3: // Product Orders
