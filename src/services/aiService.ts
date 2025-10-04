@@ -14,6 +14,12 @@ class AIService {
   
   async processVeterinaryQuery(query: string, context?: any): Promise<IVRResponse> {
     try {
+      // Check if we have a valid API key
+      if (!config.openai.apiKey || config.openai.apiKey === 'test_openai_key') {
+        logger.info('Using mock AI response (no valid OpenAI key)');
+        return this.getMockVeterinaryResponse(query);
+      }
+      
       const prompt = this.buildVeterinaryPrompt(query, context);
       
       const completion = await this.openai.chat.completions.create({
@@ -237,6 +243,23 @@ If it's about purchasing, redirect to product services.`;
       .replace(/\n/g, '. ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+  
+  private getMockVeterinaryResponse(query: string): IVRResponse {
+    // Provide realistic veterinary responses for demo
+    const mockResponses = [
+      "Based on the symptoms you described, this could be a respiratory infection. I recommend isolating the affected animal and providing plenty of fresh water. Monitor the temperature and if symptoms worsen, consult a veterinarian immediately. You can also try giving warm water with honey to soothe the throat.",
+      "This sounds like it could be nutritional deficiency or parasites. Ensure your animals have access to balanced feed and clean water. I recommend deworming if not done recently. For immediate relief, provide electrolyte solution and monitor closely.",
+      "The symptoms suggest possible bacterial infection. Keep the animal isolated in a clean, dry area. Provide supportive care with proper nutrition and hydration. If you have antibiotics available, they may be helpful, but I strongly recommend consulting with a veterinarian for proper diagnosis and treatment.",
+      "This could be related to feed quality or digestive issues. Check your feed for mold or contamination. Provide probiotics if available and ensure fresh water access. Monitor for improvement over the next 24 hours. If symptoms persist, professional veterinary care is needed."
+    ];
+    
+    const randomResponse = mockResponses[Math.floor(Math.random() * mockResponses.length)];
+    
+    return {
+      response: this.formatForAudio(randomResponse || 'I apologize, but I cannot provide a response at this time. Please try again or consult with a veterinarian.'),
+      nextAction: 'menu'
+    };
   }
 }
 

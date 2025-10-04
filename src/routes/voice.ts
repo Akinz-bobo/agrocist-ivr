@@ -13,7 +13,8 @@ router.post('/', voiceController.handleIncomingCall);
 // Menu selection endpoints
 router.post('/menu', voiceController.handleMenuSelection);
 
-// Simplified endpoints - other handlers temporarily disabled
+// Recording endpoint for voice input (AI processing)
+router.post('/recording', voiceController.handleRecording);
 
 // Health check endpoint
 router.get('/health', (req, res) => {
