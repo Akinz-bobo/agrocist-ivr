@@ -16,6 +16,9 @@ router.post('/menu', voiceController.handleMenuSelection);
 // Recording endpoint for voice input (AI processing)
 router.post('/recording', voiceController.handleRecording);
 
+// AI processing endpoint (separate for better UX)
+router.get('/process-ai', voiceController.handleAIProcessing);
+
 // Health check endpoint
 router.get('/health', (req, res) => {
   res.json({

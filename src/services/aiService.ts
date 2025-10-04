@@ -139,25 +139,20 @@ class AIService {
   }
   
   private getVeterinarySystemPrompt(): string {
-    return `You are Dr. AgriBot, an expert veterinary AI assistant for livestock farmers in Nigeria. You provide professional veterinary advice for cattle, poultry, goats, sheep, and pigs.
+    return `You are Dr. AgriBot, an expert veterinary AI for Nigerian livestock farmers. Provide SHORT, actionable advice for cattle, poultry, goats, sheep, and pigs.
 
-IMPORTANT GUIDELINES:
-1. Always provide clear, actionable advice suitable for farmers
-2. For serious symptoms, recommend immediate veterinary consultation
-3. Include prevention tips when relevant
-4. Keep responses concise but informative (under 250 words)
-5. Use simple, clear language suitable for audio delivery
-6. If uncertain about diagnosis, recommend professional consultation
-7. Include dosage information only for common, safe treatments
+CRITICAL RULES:
+1. Keep responses under 100 words (call costs money)
+2. Give 2-3 specific actions only
+3. Use simple language for phone delivery
+4. For emergencies (dying, bleeding, convulsions), say "urgent veterinary care needed"
+5. NO long explanations or lists
 
-EMERGENCY KEYWORDS: If you detect words like "dying", "bleeding", "convulsions", "unable to stand", immediately recommend urgent veterinary care.
+FORMAT: Problem identification + immediate action + when to call vet
 
-AVAILABLE SERVICES:
-- Veterinary consultations (mention "press 4 to speak with a vet")
-- Medications and treatments (mention "press 3 for product orders")
-- Farm record keeping (mention "press 1 for farm records")
+EMERGENCY: dying, bleeding, convulsions = "urgent veterinary care needed immediately"
 
-Respond as if speaking directly to the farmer over the phone.`;
+Respond as if speaking directly to farmer over phone. Be concise and actionable.`;
   }
   
   private getGeneralSystemPrompt(): string {
@@ -246,18 +241,18 @@ If it's about purchasing, redirect to product services.`;
   }
   
   private getMockVeterinaryResponse(query: string): IVRResponse {
-    // Provide realistic veterinary responses for demo
+    // Provide short, actionable veterinary responses for cost efficiency
     const mockResponses = [
-      "Based on the symptoms you described, this could be a respiratory infection. I recommend isolating the affected animal and providing plenty of fresh water. Monitor the temperature and if symptoms worsen, consult a veterinarian immediately. You can also try giving warm water with honey to soothe the throat.",
-      "This sounds like it could be nutritional deficiency or parasites. Ensure your animals have access to balanced feed and clean water. I recommend deworming if not done recently. For immediate relief, provide electrolyte solution and monitor closely.",
-      "The symptoms suggest possible bacterial infection. Keep the animal isolated in a clean, dry area. Provide supportive care with proper nutrition and hydration. If you have antibiotics available, they may be helpful, but I strongly recommend consulting with a veterinarian for proper diagnosis and treatment.",
-      "This could be related to feed quality or digestive issues. Check your feed for mold or contamination. Provide probiotics if available and ensure fresh water access. Monitor for improvement over the next 24 hours. If symptoms persist, professional veterinary care is needed."
+      "This sounds like respiratory infection. Isolate the animal, provide clean water, and monitor temperature. If no improvement in 24 hours, consult a veterinarian",
+      "Likely nutritional deficiency or parasites. Give balanced feed, clean water, and deworm if not done recently. Provide electrolyte solution",
+      "Possible bacterial infection. Isolate in clean area, provide good nutrition and hydration. Consult veterinarian if symptoms persist",
+      "Could be feed quality issue. Check feed for mold, provide probiotics and fresh water. Monitor for 24 hours"
     ];
     
     const randomResponse = mockResponses[Math.floor(Math.random() * mockResponses.length)];
     
     return {
-      response: this.formatForAudio(randomResponse || 'I apologize, but I cannot provide a response at this time. Please try again or consult with a veterinarian.'),
+      response: this.formatForAudio(randomResponse || 'Please consult with a veterinarian for proper diagnosis'),
       nextAction: 'menu'
     };
   }

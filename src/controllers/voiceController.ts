@@ -154,6 +154,29 @@ class VoiceController {
         return;
       }
       
+      // First, acknowledge the recording and let user know we're processing
+      const processingXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="woman">Thank you for your question. Our veterinary expert is analyzing your concern. Please wait a moment for your response.</Say>
+  <Redirect>${process.env.WEBHOOK_BASE_URL}/voice/process-ai?session=${sessionId}</Redirect>
+</Response>`;
+      
+      logger.info(`🎤 SENDING PROCESSING MESSAGE:`, processingXML);
+      res.set('Content-Type', 'application/xml');
+      res.send(processingXML);
+      
+    } catch (error) {
+      logger.error('💥 ERROR handling recording:', error);
+      res.set('Content-Type', 'application/xml');
+      res.send(africasTalkingService.generateErrorResponse());
+    }
+  }
+  
+  async handleAIProcessing(req: Request, res: Response): Promise<void> {
+    try {
+      const sessionId = req.query.session as string;
+      logger.info(`🤖 PROCESSING AI REQUEST for session: ${sessionId}`);
+      
       // For MVP, we'll simulate speech-to-text conversion and provide AI response
       // In production, integrate with Google Speech-to-Text or similar service
       const simulatedText = "My cow has been coughing and has a runny nose for the past two days. What should I do?";
@@ -168,14 +191,17 @@ class VoiceController {
       
       logger.info(`🤖 AI Response: "${aiResponse.response}"`);
       
+      // Clean up AI response - remove markdown and format for audio
+      const cleanedResponse = this.cleanAIResponse(aiResponse.response);
+      
       // Generate response with AI answer and option to continue
-      const responseText = `${aiResponse.response}. Press 1 to ask another question, or 9 to return to the main menu.`;
+      const responseText = `${cleanedResponse}. Press 1 to ask another question, or 9 to return to the main menu.`;
       
       const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="woman">${responseText}</Say>
-  <GetDigits timeout="10" finishOnKey="#" callbackUrl="${process.env.WEBHOOK_BASE_URL}/voice/menu">
-    <Say voice="woman">Press 1 for another question, 9 for main menu, or star to repeat.</Say>
+  <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${process.env.WEBHOOK_BASE_URL}/voice/menu">
+    <Say voice="woman">Press 1 for another question or 9 for main menu.</Say>
   </GetDigits>
 </Response>`;
       
@@ -184,10 +210,22 @@ class VoiceController {
       res.send(responseXML);
       
     } catch (error) {
-      logger.error('💥 ERROR handling recording:', error);
+      logger.error('💥 ERROR processing AI request:', error);
       res.set('Content-Type', 'application/xml');
       res.send(africasTalkingService.generateErrorResponse());
     }
+  }
+  
+  private cleanAIResponse(response: string): string {
+    // Remove markdown formatting, stars, and clean up for audio
+    return response
+      .replace(/\*\*/g, '') // Remove bold markdown
+      .replace(/\*/g, '')   // Remove italic markdown
+      .replace(/##/g, '')   // Remove heading markdown
+      .replace(/#/g, '')    // Remove heading markdown
+      .replace(/\n/g, '. ') // Replace newlines with periods
+      .replace(/\s+/g, ' ') // Remove extra spaces
+      .trim();
   }
   
   private simulateSpeechToText(menu: string): string {

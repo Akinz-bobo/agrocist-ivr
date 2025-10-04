@@ -100,8 +100,8 @@ class AfricasTalkingService {
   }
   
   private getMainMenuXML(): string {
-    return `<GetDigits timeout="10" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/menu">
-    <Say voice="woman">Press 1 for farm records and information. Press 2 for veterinary help and advice. Press 3 for product orders and purchases. Press 4 to speak with a veterinary expert. Press star to repeat this menu.</Say>
+    return `<GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${config.webhook.baseUrl}/voice/menu">
+    <Say voice="woman">Press 1 for farm records. Press 2 for veterinary help. Press 3 for products. Press 4 for vet consultation.</Say>
   </GetDigits>`;
   }
   
