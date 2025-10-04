@@ -11,18 +11,9 @@ router.use(logRequest);
 router.post('/', voiceController.handleIncomingCall);
 
 // Menu selection endpoints
-router.post('/menu', validateAfricasTalkingWebhook, validateDTMF, voiceController.handleMenuSelection);
-router.post('/products', validateAfricasTalkingWebhook, validateDTMF, voiceController.handleProductMenu);
-router.post('/veterinary', validateAfricasTalkingWebhook, validateDTMF, voiceController.handleVeterinaryMenu);
+router.post('/menu', voiceController.handleMenuSelection);
 
-// Recording endpoint for voice input
-router.post('/recording', validateAfricasTalkingWebhook, voiceController.handleRecording);
-
-// Transfer completion endpoint
-router.post('/transfer', validateAfricasTalkingWebhook, voiceController.handleTransfer);
-
-// Call end notification endpoint
-router.post('/end', validateAfricasTalkingWebhook, voiceController.handleCallEnd);
+// Simplified endpoints - other handlers temporarily disabled
 
 // Health check endpoint
 router.get('/health', (req, res) => {
