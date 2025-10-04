@@ -3,6 +3,7 @@ import { AfricasTalkingWebhook } from '../types';
 import africasTalkingService from '../services/africasTalkingService';
 import aiService from '../services/aiService';
 import logger from '../utils/logger';
+import config from '../config';
 
 class VoiceController {
   
@@ -156,7 +157,7 @@ class VoiceController {
       const processingXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="woman">Thank you for your question. Agrocist is analyzing your concern. Please wait a moment for your response.</Say>
-  <Redirect>${process.env.WEBHOOK_BASE_URL}/voice/process-ai?session=${sessionId}</Redirect>
+  <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
       
       logger.info(`🎤 SENDING PROCESSING MESSAGE:`, processingXML);
@@ -198,7 +199,7 @@ class VoiceController {
       const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="woman">${responseText}</Say>
-  <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${process.env.WEBHOOK_BASE_URL}/voice/menu">
+  <GetDigits timeout="8" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/menu">
     <Say voice="woman">Press 1 for another question or 9 for main menu.</Say>
   </GetDigits>
 </Response>`;

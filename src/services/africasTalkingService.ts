@@ -47,7 +47,6 @@ class AfricasTalkingService {
   generateWelcomeResponse(): string {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="woman">Welcome to Agrocist, your trusted livestock farming partner. We provide veterinary support, farm record management, and quality agricultural products.</Say>
   ${this.getMainMenuXML()}
 </Response>`;
   }
@@ -107,8 +106,8 @@ class AfricasTalkingService {
   }
   
   private getMainMenuXML(): string {
-    return `<GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${config.webhook.baseUrl}/voice/menu">
-    <Say voice="woman">Press 1 for farm records. Press 2 for veterinary help. Press 3 for products. Press 4 for vet consultation.</Say>
+    return `<GetDigits timeout="15" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/menu">
+    <Say voice="woman">Welcome to Agrocist, your trusted livestock farming partner. Press 1 for farm records. Press 2 for veterinary help. Press 3 for products. Press 4 for vet consultation.</Say>
   </GetDigits>`;
   }
   
@@ -132,7 +131,7 @@ class AfricasTalkingService {
   
   private getImmediateRecordingXML(): string {
     return `<Record timeout="30" trimSilence="true" playBeep="false" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
-    <Say voice="woman"><break time="3s"/>Please describe your livestock concern or question. Be as specific as possible about the animal type, symptoms, or issue you're experiencing.</Say>
+    <Say voice="woman">Please describe your livestock concern or question. Be as specific as possible about the animal type, symptoms, or issue you're experiencing.</Say>
   </Record>`;
   }
   
