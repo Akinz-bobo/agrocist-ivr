@@ -19,14 +19,25 @@ export interface AIInteraction {
 
 export interface AfricasTalkingWebhook {
   sessionId: string;
-  phoneNumber: string;
-  networkCode: string;
+  phoneNumber?: string;
+  callerNumber?: string;
+  destinationNumber?: string;
+  networkCode?: string;
+  direction?: string;
+  isActive: string;
   dtmfDigits?: string;
   recordingUrl?: string;
+  callRecordingUrl?: string;
   durationInSeconds?: number;
+  callRecordingDurationInSeconds?: number;
   currencyCode?: string;
   amount?: number;
   hangupCause?: string;
+  callStartTime?: string;
+  callEndTime?: string;
+  callType?: string;
+  callStatus?: string;
+  callEndReason?: string;
 }
 
 export interface IVRResponse {

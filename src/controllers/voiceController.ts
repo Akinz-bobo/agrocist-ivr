@@ -9,12 +9,26 @@ class VoiceController {
   
   async handleIncomingCall(req: Request, res: Response): Promise<void> {
     try {
-      const { sessionId, phoneNumber } = req.body as AfricasTalkingWebhook;
+      // Handle both form data and JSON
+      const webhookData = req.body as AfricasTalkingWebhook;
+      const { sessionId, isActive, callerNumber, phoneNumber, destinationNumber } = webhookData;
       
-      logger.info(`Incoming call - Session: ${sessionId}, Phone: ${phoneNumber}`);
+      // Extract caller number (Africa's Talking uses different field names)
+      const caller = callerNumber || phoneNumber;
+      
+      logger.info(`Incoming call - Session: ${sessionId}, Active: ${isActive}, Caller: ${caller}, Destination: ${destinationNumber}`);
+      
+      // If call is not active, return empty response
+      if (isActive === "0") {
+        logger.info("Received call with isActive=0. Ending session.", { sessionId });
+        res.status(200).send('');
+        return;
+      }
       
       // Create new session
-      await sessionManager.createSession(sessionId, phoneNumber);
+      if (caller) {
+        await sessionManager.createSession(sessionId, caller);
+      }
       
       // Generate welcome response
       const welcomeXML = africasTalkingService.generateWelcomeResponse();
@@ -31,9 +45,23 @@ class VoiceController {
   
   async handleMenuSelection(req: Request, res: Response): Promise<void> {
     try {
-      const { sessionId, dtmfDigits } = req.body as AfricasTalkingWebhook;
+      const webhookData = req.body as AfricasTalkingWebhook;
+      const { sessionId, isActive, dtmfDigits, recordingUrl, callRecordingUrl } = webhookData;
       
-      logger.info(`Menu selection - Session: ${sessionId}, DTMF: ${dtmfDigits}`);
+      logger.info(`Menu selection - Session: ${sessionId}, Active: ${isActive}, DTMF: ${dtmfDigits}`);
+      
+      // If call is not active, handle recording or end call
+      if (isActive === "0") {
+        const recording = recordingUrl || callRecordingUrl;
+        if (recording) {
+          logger.info(`Session ${sessionId} completed with recording. URL: ${recording}`);
+          // Save recording URL here if needed
+        } else {
+          logger.info(`Session ${sessionId} ended after GetDigits without recording.`);
+        }
+        res.status(200).send('');
+        return;
+      }
       
       const session = await sessionManager.getSession(sessionId);
       if (!session) {
@@ -92,9 +120,16 @@ class VoiceController {
   
   async handleProductMenu(req: Request, res: Response): Promise<void> {
     try {
-      const { sessionId, dtmfDigits } = req.body as AfricasTalkingWebhook;
+      const webhookData = req.body as AfricasTalkingWebhook;
+      const { sessionId, isActive, dtmfDigits } = webhookData;
       
-      logger.info(`Product menu - Session: ${sessionId}, DTMF: ${dtmfDigits}`);
+      logger.info(`Product menu - Session: ${sessionId}, Active: ${isActive}, DTMF: ${dtmfDigits}`);
+      
+      // If call is not active, return empty response
+      if (isActive === "0") {
+        res.status(200).send('');
+        return;
+      }
       
       const session = await sessionManager.getSession(sessionId);
       if (!session) {
@@ -219,9 +254,21 @@ class VoiceController {
   
   async handleRecording(req: Request, res: Response): Promise<void> {
     try {
-      const { sessionId, recordingUrl } = req.body as AfricasTalkingWebhook;
+      const webhookData = req.body as AfricasTalkingWebhook;
+      const { sessionId, isActive, recordingUrl, callRecordingUrl, callRecordingDurationInSeconds } = webhookData;
       
-      logger.info(`Recording received - Session: ${sessionId}, URL: ${recordingUrl}`);
+      const recording = recordingUrl || callRecordingUrl;
+      logger.info(`Recording received - Session: ${sessionId}, Active: ${isActive}, URL: ${recording}, Duration: ${callRecordingDurationInSeconds}s`);
+      
+      // If call is not active, just log and return empty response
+      if (isActive === "0") {
+        if (recording) {
+          logger.info(`Session ${sessionId}: Recording completed. URL: ${recording}, Duration: ${callRecordingDurationInSeconds}s`);
+          // Save recording URL to database here if needed
+        }
+        res.status(200).send('');
+        return;
+      }
       
       const session = await sessionManager.getSession(sessionId);
       if (!session) {
