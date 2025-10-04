@@ -25,6 +25,8 @@ export interface AfricasTalkingWebhook {
   networkCode?: string;
   direction?: string;
   isActive: string;
+  callSessionState?: string;
+  status?: string;
   dtmfDigits?: string;
   recordingUrl?: string;
   callRecordingUrl?: string;
@@ -38,6 +40,8 @@ export interface AfricasTalkingWebhook {
   callType?: string;
   callStatus?: string;
   callEndReason?: string;
+  callerCountryCode?: string;
+  callerCarrierName?: string;
 }
 
 export interface IVRResponse {

@@ -10,34 +10,71 @@ class VoiceController {
   async handleIncomingCall(req: Request, res: Response): Promise<void> {
     try {
       // Handle both form data and JSON
-      const webhookData = req.body as AfricasTalkingWebhook;
-      const { sessionId, isActive, callerNumber, phoneNumber, destinationNumber } = webhookData;
+      const webhookData = req.body as any;
+      logger.info(`=== INCOMING WEBHOOK REQUEST ===`);
+      logger.info(`Content-Type: ${req.get('Content-Type')}`);
+      logger.info(`Method: ${req.method}`);
+      logger.info(`URL: ${req.url}`);
+      logger.info(`Full webhook data received:`, JSON.stringify(webhookData, null, 2));
+      
+      const { 
+        sessionId, 
+        isActive, 
+        callerNumber, 
+        phoneNumber, 
+        destinationNumber,
+        callSessionState,
+        direction,
+        status,
+        durationInSeconds 
+      } = webhookData;
       
       // Extract caller number (Africa's Talking uses different field names)
       const caller = callerNumber || phoneNumber;
       
-      logger.info(`Incoming call - Session: ${sessionId}, Active: ${isActive}, Caller: ${caller}, Destination: ${destinationNumber}`);
+      logger.info(`PARSED DATA - Session: ${sessionId}, Active: ${isActive}, State: ${callSessionState}, Caller: ${caller}, Destination: ${destinationNumber}, Duration: ${durationInSeconds}s`);
       
-      // If call is not active, return empty response
-      if (isActive === "0") {
-        logger.info("Received call with isActive=0. Ending session.", { sessionId });
+      // If this is a completed call event, just log and return empty
+      if (isActive === "0" || callSessionState === "Completed") {
+        logger.info("❌ CALL COMPLETION EVENT - returning empty response.", { 
+          sessionId, 
+          callSessionState, 
+          duration: durationInSeconds,
+          status 
+        });
         res.status(200).send('');
         return;
       }
       
-      // Create new session
-      if (caller) {
-        await sessionManager.createSession(sessionId, caller);
+      // For active incoming calls, create session and respond with IVR
+      if (isActive === "1" || !callSessionState || callSessionState === "Ringing") {
+        logger.info("✅ ACTIVE INCOMING CALL - generating IVR response", { sessionId, caller, isActive, callSessionState });
+        
+        // Create new session
+        if (caller) {
+          await sessionManager.createSession(sessionId, caller);
+          logger.info(`Session created for caller: ${caller}`);
+        }
+        
+        // Generate welcome response
+        const welcomeXML = africasTalkingService.generateWelcomeResponse();
+        
+        logger.info("🎤 SENDING IVR XML RESPONSE:", welcomeXML);
+        res.set('Content-Type', 'application/xml');
+        res.send(welcomeXML);
+        return;
       }
       
-      // Generate welcome response
-      const welcomeXML = africasTalkingService.generateWelcomeResponse();
-      
-      res.set('Content-Type', 'application/xml');
-      res.send(welcomeXML);
+      // Default: return empty response for unknown states
+      logger.warn("⚠️ UNKNOWN CALL STATE - returning empty response", { 
+        sessionId, 
+        isActive, 
+        callSessionState 
+      });
+      res.status(200).send('');
       
     } catch (error) {
-      logger.error('Error handling incoming call:', error);
+      logger.error('💥 ERROR handling incoming call:', error);
       res.set('Content-Type', 'application/xml');
       res.send(africasTalkingService.generateErrorResponse());
     }

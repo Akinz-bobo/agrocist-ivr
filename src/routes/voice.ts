@@ -7,8 +7,8 @@ const router = Router();
 // Apply logging middleware to all routes
 router.use(logRequest);
 
-// Main voice webhook endpoint for incoming calls
-router.post('/', validateAfricasTalkingWebhook, voiceController.handleIncomingCall);
+// Main voice webhook endpoint for incoming calls (no validation to ensure compatibility)
+router.post('/', voiceController.handleIncomingCall);
 
 // Menu selection endpoints
 router.post('/menu', validateAfricasTalkingWebhook, validateDTMF, voiceController.handleMenuSelection);
