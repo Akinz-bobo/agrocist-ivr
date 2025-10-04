@@ -157,7 +157,7 @@ class VoiceController {
       // First, acknowledge the recording and let user know we're processing
       const processingXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="woman">Thank you for your question. Our veterinary expert is analyzing your concern. Please wait a moment for your response.</Say>
+  <Say voice="woman">Thank you for your question. Agrocist is analyzing your concern. Please wait a moment for your response.</Say>
   <Redirect>${process.env.WEBHOOK_BASE_URL}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
       
