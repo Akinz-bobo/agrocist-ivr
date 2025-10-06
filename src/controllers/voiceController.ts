@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { AfricasTalkingWebhook } from '../types';
 import africasTalkingService from '../services/africasTalkingService';
 import aiService from '../services/aiService';
+import sessionManager from '../utils/sessionManager';
 import logger from '../utils/logger';
 import config from '../config';
 
@@ -72,22 +73,22 @@ class VoiceController {
     }
   }
   
-  async handleMenuSelection(req: Request, res: Response): Promise<void> {
+  async handleLanguageSelection(req: Request, res: Response): Promise<void> {
     try {
       const webhookData = req.body as AfricasTalkingWebhook;
       const { sessionId, isActive, dtmfDigits, recordingUrl, callRecordingUrl } = webhookData;
       
-      logger.info(`=== MENU SELECTION WEBHOOK ===`);
+      logger.info(`=== LANGUAGE SELECTION WEBHOOK ===`);
       logger.info(`Full webhook data:`, JSON.stringify(webhookData, null, 2));
-      logger.info(`Menu selection - Session: ${sessionId}, Active: ${isActive}, DTMF: ${dtmfDigits}`);
+      logger.info(`Language selection - Session: ${sessionId}, Active: ${isActive}, DTMF: ${dtmfDigits}`);
       
-      // If call is not active, handle recording or end call
+      // If call is not active, end call
       if (isActive === "0") {
         const recording = recordingUrl || callRecordingUrl;
         if (recording) {
           logger.info(`Session ${sessionId} completed with recording. URL: ${recording}`);
         } else {
-          logger.info(`Session ${sessionId} ended after GetDigits without recording.`);
+          logger.info(`Session ${sessionId} ended after language selection.`);
         }
         res.status(200).send('');
         return;
@@ -95,40 +96,53 @@ class VoiceController {
       
       const choice = africasTalkingService.extractMenuChoice(dtmfDigits || '');
       let responseXML = '';
+      let selectedLanguage = 'en';
       
       switch (choice) {
-        case 1: // Farm Records
-          responseXML = africasTalkingService.generateRecordingResponse(
-            "Please state your farm ID or farmer name, and what information you need about your farm."
-          );
+        case 1: // English
+          selectedLanguage = 'en';
+          responseXML = africasTalkingService.generateAIServiceMenuResponse('en');
           break;
           
-        case 2: // Veterinary Help
-          responseXML = africasTalkingService.generateImmediateRecordingResponse();
+        case 2: // Yoruba
+          selectedLanguage = 'yo';
+          responseXML = africasTalkingService.generateAIServiceMenuResponse('yo');
           break;
           
-        case 3: // Product Orders
-          responseXML = africasTalkingService.generateMenuResponse('products');
+        case 3: // Hausa
+          selectedLanguage = 'ha';
+          responseXML = africasTalkingService.generateAIServiceMenuResponse('ha');
           break;
           
-        case 4: // Speak with Vet
-          responseXML = africasTalkingService.generateTransferResponse();
+        case 4: // Repeat menu
+          responseXML = africasTalkingService.generateLanguageMenuResponse();
           break;
           
-        case 'repeat':
-          responseXML = africasTalkingService.generateWelcomeResponse();
+        case 0: // End call
+          responseXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="woman">Thank you for calling Agrocist. Have a great day!</Say>
+  <Hangup/>
+</Response>`;
           break;
           
         default:
-          logger.warn(`Invalid menu choice: ${choice} for session: ${sessionId}`);
-          responseXML = africasTalkingService.generateErrorResponse();
+          logger.warn(`Invalid language choice: ${choice} for session: ${sessionId}`);
+          responseXML = africasTalkingService.generateLanguageMenuResponse();
+      }
+      
+      // Store selected language in session if valid choice
+      if (typeof choice === 'number' && [1, 2, 3].includes(choice)) {
+        await sessionManager.updateSessionContext(sessionId, { language: selectedLanguage });
+        await sessionManager.updateSessionMenu(sessionId, 'ai_service');
+        logger.info(`Language ${selectedLanguage} selected for session: ${sessionId}`);
       }
       
       res.set('Content-Type', 'application/xml');
       res.send(responseXML);
       
     } catch (error) {
-      logger.error('Error handling menu selection:', error);
+      logger.error('Error handling language selection:', error);
       res.set('Content-Type', 'application/xml');
       res.send(africasTalkingService.generateErrorResponse());
     }
@@ -148,11 +162,24 @@ class VoiceController {
       if (isActive === "0") {
         if (recording) {
           logger.info(`Session ${sessionId}: Recording completed. URL: ${recording}, Duration: ${callRecordingDurationInSeconds}s`);
+          // Store recording URL for later processing
+          await sessionManager.updateSessionContext(sessionId, { 
+            recordingUrl: recording,
+            recordingDuration: callRecordingDurationInSeconds 
+          });
         }
         res.status(200).send('');
         return;
       }
       
+      // Store recording URL for immediate processing
+      if (recording) {
+        await sessionManager.updateSessionContext(sessionId, { 
+          recordingUrl: recording,
+          recordingDuration: callRecordingDurationInSeconds 
+        });
+      }
+
       // First, acknowledge the recording and let user know we're processing
       const processingXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -170,38 +197,108 @@ class VoiceController {
       res.send(africasTalkingService.generateErrorResponse());
     }
   }
+
+  async handlePostAI(req: Request, res: Response): Promise<void> {
+    try {
+      const webhookData = req.body as AfricasTalkingWebhook;
+      const { sessionId, isActive, dtmfDigits } = webhookData;
+      const languageParam = req.query.language as string;
+      
+      logger.info(`=== POST-AI WEBHOOK ===`);
+      logger.info(`Post-AI - Session: ${sessionId}, Active: ${isActive}, DTMF: ${dtmfDigits}, Language: ${languageParam}`);
+      
+      // If call is not active, end call
+      if (isActive === "0") {
+        logger.info(`Session ${sessionId} ended after post-AI.`);
+        res.status(200).send('');
+        return;
+      }
+
+      // If no DTMF digits, this is the initial redirect - show the post-AI menu
+      if (!dtmfDigits) {
+        const session = await sessionManager.getSession(sessionId);
+        const language = languageParam || session?.context?.language || 'en';
+        const responseXML = africasTalkingService.generatePostAIMenuResponse(language);
+        
+        res.set('Content-Type', 'application/xml');
+        res.send(responseXML);
+        return;
+      }
+      
+      // Handle user's choice
+      const choice = africasTalkingService.extractMenuChoice(dtmfDigits);
+      let responseXML = '';
+      
+      switch (choice) {
+        case 1: // Speak with human expert
+          responseXML = africasTalkingService.generateTransferResponse();
+          break;
+          
+        case 0: // End call
+          responseXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="woman">Thank you for using Agrocist. Have a great day!</Say>
+  <Hangup/>
+</Response>`;
+          break;
+          
+        default:
+          // Get session to determine language for repeat prompt
+          const session = await sessionManager.getSession(sessionId);
+          const language = languageParam || session?.context?.language || 'en';
+          responseXML = africasTalkingService.generatePostAIMenuResponse(language);
+      }
+      
+      res.set('Content-Type', 'application/xml');
+      res.send(responseXML);
+      
+    } catch (error) {
+      logger.error('Error handling post-AI:', error);
+      res.set('Content-Type', 'application/xml');
+      res.send(africasTalkingService.generateErrorResponse());
+    }
+  }
   
   async handleAIProcessing(req: Request, res: Response): Promise<void> {
     try {
       const sessionId = req.query.session as string;
       logger.info(`🤖 PROCESSING AI REQUEST for session: ${sessionId}`);
       
-      // For MVP, we'll simulate speech-to-text conversion and provide AI response
-      // In production, integrate with Google Speech-to-Text or similar service
-      const simulatedText = "My cow has been coughing and has a runny nose for the past two days. What should I do?";
+      // Get session data to retrieve recording URL
+      const session = await sessionManager.getSession(sessionId);
+      if (!session || !session.context.recordingUrl) {
+        logger.error(`No recording URL found for session: ${sessionId}`);
+        res.set('Content-Type', 'application/xml');
+        res.send(africasTalkingService.generateErrorResponse());
+        return;
+      }
+
+      // Transcribe the actual farmer's recording
+      const farmerText = await aiService.transcribeAudio(session.context.recordingUrl);
       
-      logger.info(`🎤 Simulated speech-to-text: "${simulatedText}"`);
+      logger.info(`🎤 Transcribed farmer input: "${farmerText}"`);
       
-      // Process with AI service
-      const aiResponse = await aiService.processVeterinaryQuery(simulatedText, {
+      // Process with AI service using actual farmer concerns and selected language
+      const language = session.context.language || 'en';
+      const aiResponse = await aiService.processVeterinaryQuery(farmerText, {
         menu: 'veterinary_ai',
-        farmerId: sessionId
+        farmerId: sessionId,
+        language: language
       });
       
       logger.info(`🤖 AI Response: "${aiResponse.response}"`);
+
+      // Store the AI interaction in session
+      await sessionManager.addAIInteraction(sessionId, farmerText, aiResponse.response, 0.9, 'veterinary');
       
       // Clean up AI response - remove markdown and format for audio
       const cleanedResponse = this.cleanAIResponse(aiResponse.response);
       
-      // Generate response with AI answer and option to continue
-      const responseText = `${cleanedResponse}. Press 1 to ask another question, or 9 to return to the main menu.`;
-      
+      // Generate response with AI answer and redirect to post-AI menu
       const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="woman">${responseText}</Say>
-  <GetDigits timeout="8" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/menu">
-    <Say voice="woman">Press 1 for another question or 9 for main menu.</Say>
-  </GetDigits>
+  <Say voice="woman">${cleanedResponse}</Say>
+  <Redirect>${config.webhook.baseUrl}/voice/post-ai?session=${sessionId}&language=${language}</Redirect>
 </Response>`;
       
       logger.info(`🎤 SENDING AI RESPONSE XML:`, responseXML);
@@ -227,17 +324,6 @@ class VoiceController {
       .trim();
   }
   
-  private simulateSpeechToText(menu: string): string {
-    // Mock speech-to-text conversion based on menu context
-    const mockResponses: Record<string, string> = {
-      'veterinary_ai': 'My cow has been coughing and has a runny nose for the past two days',
-      'farm_records': 'I need information about my farm with ID number 12345',
-      'medications': 'I need antibiotics for my sick pig, it weighs about 50 kilograms',
-      'feed': 'I want to buy protein feed for my 200 broiler chickens'
-    };
-    
-    return mockResponses[menu] || 'I need help with my livestock';
-  }
 }
 
 export default new VoiceController();

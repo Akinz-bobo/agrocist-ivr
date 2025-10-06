@@ -77,6 +77,14 @@ class SessionManager {
       await this.saveSession(session);
     }
   }
+
+  async updateSessionContext(sessionId: string, contextUpdate: Record<string, any>): Promise<void> {
+    const session = await this.getSession(sessionId);
+    if (session) {
+      session.context = { ...session.context, ...contextUpdate };
+      await this.saveSession(session);
+    }
+  }
   
   async addAIInteraction(sessionId: string, userInput: string, aiResponse: string, confidence: number, category: 'veterinary' | 'farm_records' | 'products' | 'general'): Promise<void> {
     const session = await this.getSession(sessionId);

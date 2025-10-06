@@ -10,14 +10,17 @@ router.use(logRequest);
 // Main voice webhook endpoint for incoming calls (no validation to ensure compatibility)
 router.post('/', voiceController.handleIncomingCall);
 
-// Menu selection endpoints
-router.post('/menu', voiceController.handleMenuSelection);
+// Language selection endpoint
+router.post('/language', voiceController.handleLanguageSelection);
 
 // Recording endpoint for voice input (AI processing)
 router.post('/recording', voiceController.handleRecording);
 
 // AI processing endpoint (separate for better UX)
 router.post('/process-ai', voiceController.handleAIProcessing);
+
+// Post-AI menu endpoint for human agent option
+router.post('/post-ai', voiceController.handlePostAI);
 
 // Health check endpoint
 router.get('/health', (req, res) => {

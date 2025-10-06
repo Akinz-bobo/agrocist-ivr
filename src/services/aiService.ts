@@ -17,17 +17,18 @@ class AIService {
       // Check if we have a valid API key
       if (!config.openai.apiKey || config.openai.apiKey === 'test_openai_key') {
         logger.info('Using mock AI response (no valid OpenAI key)');
-        return this.getMockVeterinaryResponse(query);
+        return this.getMockVeterinaryResponse(query, context?.language);
       }
       
       const prompt = this.buildVeterinaryPrompt(query, context);
+      const language = context?.language || 'en';
       
       const completion = await this.openai.chat.completions.create({
         model: config.openai.model,
         messages: [
           {
             role: "system",
-            content: this.getVeterinarySystemPrompt()
+            content: this.getVeterinarySystemPrompt(language)
           },
           {
             role: "user",
@@ -138,8 +139,9 @@ class AIService {
     }
   }
   
-  private getVeterinarySystemPrompt(): string {
-    return `You are Dr. AgriBot, an expert veterinary AI for Nigerian livestock farmers. Provide SHORT, actionable advice for cattle, poultry, goats, sheep, and pigs.
+  private getVeterinarySystemPrompt(language: string = 'en'): string {
+    const prompts = {
+      'en': `You are Dr. AgriBot, an expert veterinary AI for Nigerian livestock farmers. Provide SHORT, actionable advice for cattle, poultry, goats, sheep, and pigs.
 
 CRITICAL RULES:
 1. Keep responses under 100 words (call costs money)
@@ -147,12 +149,48 @@ CRITICAL RULES:
 3. Use simple language for phone delivery
 4. For emergencies (dying, bleeding, convulsions), say "urgent veterinary care needed"
 5. NO long explanations or lists
+6. RESPOND IN ENGLISH ONLY
 
 FORMAT: Problem identification + immediate action + when to call vet
 
 EMERGENCY: dying, bleeding, convulsions = "urgent veterinary care needed immediately"
 
-Respond as if speaking directly to farmer over phone. Be concise and actionable.`;
+Respond as if speaking directly to farmer over phone. Be concise and actionable.`,
+
+      'yo': `E ni Dr. AgriBot, omo-iwe veterinary fun awon agbe omo-oja ni Nigeria. Fun imoran to kukuru ati to dara fun eran-oja: malu, adie, ewure, agutan, ati elede.
+
+OFIN PATAKI:
+1. Jeki idahun yin wa ni kere ju ogo mewa (ipe na gbe owo)
+2. Fun ise mejo si meta nikan
+3. Lo ede ti o roju fun ipe
+4. Fun awon ipele pataki (iku, eje, wariri), so pe "a nilo itoju veterinary kiakia"
+5. KO SI alaye gigun tabi akojo
+6. DAHUN NI EDE YORUBA NIKAN
+
+ILANA: Idamo isoro + ise ti o yara + igba lati pe veterinary
+
+IPELE PATAKI: iku, eje, wariri = "a nilo itoju veterinary kiakia"
+
+Dahun gege bi pe o n ba agbe soro ni ipe. Jeki o kukuru ati ki o le se.`,
+
+      'ha': `Kai ne Dr. AgriBot, ƙwararren likitan dabbobi na Najeriya. Ba da gajerun shawarwari masu amfani don shanu, kaji, awaki, tumaki, da aladu.
+
+MUHIMMAN DOKOKI:
+1. Ka sa amsakuwa su kasance ƙasa da kalmomi ɗari (kiran yana cin kuɗi)
+2. Ka ba da ayyuka 2-3 kawai
+3. Yi amfani da sauƙin harshe don kiran
+4. Don gaggawa (mutuwa, zubar da jini, rawan), ka ce "ana buƙatar kulawar likita da sauri"
+5. BABU dogon bayani ko jeri
+6. AMSA DA HAUSA KAWAI
+
+TSARI: Gano matsala + aikin gaggawa + lokacin da za a kira likita
+
+GAGGAWA: mutuwa, zubar da jini, rawan = "ana buƙatar kulawar likitan dabbobi da gaggawa"
+
+Ka amsa kamar kana magana da manomi kai tsaye ta wayar. Ka taƙaita kuma ka yi aiki.`
+    };
+
+    return prompts[language as keyof typeof prompts] || prompts['en'];
   }
   
   private getGeneralSystemPrompt(): string {
@@ -240,16 +278,78 @@ If it's about purchasing, redirect to product services.`;
       .trim();
   }
   
-  private getMockVeterinaryResponse(query: string): IVRResponse {
-    // Provide short, actionable veterinary responses for cost efficiency
-    const mockResponses = [
-      "This sounds like respiratory infection. Isolate the animal, provide clean water, and monitor temperature. If no improvement in 24 hours, consult a veterinarian",
-      "Likely nutritional deficiency or parasites. Give balanced feed, clean water, and deworm if not done recently. Provide electrolyte solution",
-      "Possible bacterial infection. Isolate in clean area, provide good nutrition and hydration. Consult veterinarian if symptoms persist",
-      "Could be feed quality issue. Check feed for mold, provide probiotics and fresh water. Monitor for 24 hours"
+  async transcribeAudio(audioUrl: string): Promise<string> {
+    try {
+      // Check if we have a valid API key
+      if (!config.openai.apiKey || config.openai.apiKey === 'test_openai_key') {
+        logger.info('Using mock transcription (no valid OpenAI key)');
+        return this.getMockTranscription();
+      }
+
+      // Download the audio file
+      const response = await fetch(audioUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to download audio: ${response.statusText}`);
+      }
+
+      const audioBuffer = await response.arrayBuffer();
+      const audioBlob = new Blob([audioBuffer], { type: 'audio/wav' });
+      const audioFile = new File([audioBlob], 'recording.wav', { type: 'audio/wav' });
+
+      // Transcribe using OpenAI Whisper
+      const transcription = await this.openai.audio.transcriptions.create({
+        file: audioFile,
+        model: 'whisper-1',
+        language: 'en' // Assuming English, can be made configurable
+      });
+
+      logger.info(`Audio transcribed successfully: "${transcription.text}"`);
+      return transcription.text || '';
+
+    } catch (error) {
+      logger.error('Error transcribing audio:', error);
+      // Fallback to mock transcription
+      return this.getMockTranscription();
+    }
+  }
+
+  private getMockTranscription(): string {
+    const mockTranscriptions = [
+      "My cow has been coughing and has a runny nose for the past two days. What should I do?",
+      "I have a sick goat that is not eating and seems very weak. Please help me.",
+      "My chickens are laying fewer eggs and some look sick. What medicine should I give them?",
+      "One of my pigs has diarrhea and is not drinking water. I need urgent help.",
+      "My cattle are showing signs of fever and are not grazing properly."
     ];
     
-    const randomResponse = mockResponses[Math.floor(Math.random() * mockResponses.length)];
+    const randomIndex = Math.floor(Math.random() * mockTranscriptions.length);
+    return mockTranscriptions[randomIndex] ?? "My livestock needs help with health issues.";
+  }
+
+  private getMockVeterinaryResponse(query: string, language: string = 'en'): IVRResponse {
+    const mockResponses = {
+      'en': [
+        "This sounds like respiratory infection. Isolate the animal, provide clean water, and monitor temperature. If no improvement in 24 hours, consult a veterinarian",
+        "Likely nutritional deficiency or parasites. Give balanced feed, clean water, and deworm if not done recently. Provide electrolyte solution",
+        "Possible bacterial infection. Isolate in clean area, provide good nutrition and hydration. Consult veterinarian if symptoms persist",
+        "Could be feed quality issue. Check feed for mold, provide probiotics and fresh water. Monitor for 24 hours"
+      ],
+      'yo': [
+        "Eyi dabi aisan mi mi. Ya eranko naa si ibi to mo, fun ni omi mimọ, wo iwọn otutu rẹ. Ti ko ba dara ni wakati mejila, kan veterinary",
+        "O le jẹ aipe ounjẹ tabi kokoro. Fun ni ounjẹ ti o peye, omi mimọ, ti ko ba ti gba egbogi laipe. Fun ni omi electrolyte",
+        "O le jẹ aisan kokoro. Ya si ibi ti o mọ, fun ni ounjẹ to dara ati omi. Kan veterinary ti aisan ba tẹsiwaju",
+        "O le jẹ isoro ounjẹ. Wo ounjẹ fun efun, fun ni probiotic ati omi tuntun. Wo fun wakati mejila"
+      ],
+      'ha': [
+        "Wannan kamar cutar numfashi ne. Ka ware dabbar, ka ba da ruwa mai tsabta, ka lura da zafin jiki. In babu sauyi a sa'o'i 24, ka tuntuɓi likitan dabbobi",
+        "Mai yiyuwa rashin abinci mai gina jiki ko tsutsotsi ne. Ka ba da abinci mai daidaito, ruwa mai tsabta, ka ba da maganin tsutsotsi in ba a yi ba kwanan nan. Ka ba da maganin electrolyte",
+        "Mai yiwuwa cutar ƙwayoyin cuta ce. Ka ware a wuri mai tsabta, ka ba da abinci mai kyau da ruwa. Ka tuntuɓi likita in alamun suka ci gaba",
+        "Zai iya zama matsalar ingancin abinci. Ka duba abinci don yin fumfuna, ka ba da probiotics da ruwa sabo. Ka sa ido har sa'o'i 24"
+      ]
+    };
+    
+    const responses = mockResponses[language as keyof typeof mockResponses] || mockResponses['en'];
+    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
     
     return {
       response: this.formatForAudio(randomResponse || 'Please consult with a veterinarian for proper diagnosis'),
