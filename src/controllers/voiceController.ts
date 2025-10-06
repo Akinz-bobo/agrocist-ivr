@@ -58,6 +58,12 @@ class VoiceController {
         destinationNumber, 
         isActive 
       });
+
+      // Create session for the incoming call
+      if (sessionId && callerNumber) {
+        await sessionManager.createSession(sessionId, callerNumber);
+        logger.info(`📝 Created session for incoming call: ${sessionId}`);
+      }
       
       // Generate welcome response
       const welcomeXML = africasTalkingService.generateWelcomeResponse();

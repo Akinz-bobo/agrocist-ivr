@@ -150,68 +150,21 @@ class AfricasTalkingService {
   // MAIN MENU
   private getMainMenuXML(): string {
     return `<GetDigits timeout="8" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language">
-    <Say voice="woman">
-      Welcome to Agrocist, your trusted livestock farming partner. 
-      Press 1 for English. 
-      Fún Èdè Yorùbá, ẹ tẹ ẹ̀ẹ̀jì. 
-      Don Hausa, danna uku. 
-      Press 4 to repeat this menu. 
-      Press 0 to end the call.
-    </Say>
+    <Say voice="woman">Welcome to Agrocist, your trusted livestock farming partner. Press 1 for English. Fún Èdè Yorùbá, ẹ tẹ ẹ̀ẹ̀jì. Don Hausa, danna uku. Press 4 to repeat this menu. Press 0 to end the call.</Say>
   </GetDigits>`;
   }
 
   // PRODUCT MENU
   private getProductMenuXML(): string {
     return `<GetDigits timeout="5" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/products">
-    <Say voice="woman">
-      Press 1 for livestock medications. 
-      Fún òògùn ẹranko, ẹ tẹ ọ̀kan.  
-      Don magungunan dabbobi, danna ɗaya.  
-
-      Press 2 for animal feed and supplements. 
-      Fún onjẹ ẹranko àti àfikún, ẹ tẹ ẹ̀ẹ̀jì.  
-      Don abincin dabbobi da ƙarin gina jiki, danna biyu.  
-
-      Press 3 for treatment equipment. 
-      Fún irinṣẹ ìtọ́jú, ẹ tẹ mẹ́ta.  
-      Don kayan aikin jiyya, danna uku.  
-
-      Press 9 to return to main menu. 
-      Fún padà sí àkójọ àkọ́kọ́, ẹ tẹ mẹ́sàn-án.  
-      Don komawa babban menu, danna tara.  
-
-      Press star to repeat this menu.  
-      Fún àtúnṣe àkójọ yìí, ẹ tẹ irawọ́.  
-      Don maimaita wannan menu, danna tauraro.
-    </Say>
+    <Say voice="woman">Press 1 for livestock medications. Press 2 for animal feed and supplements. Press 3 for treatment equipment. Press 9 to return to main menu. Press star to repeat this menu.</Say>
   </GetDigits>`;
   }
 
   // VETERINARY MENU
   private getVeterinaryMenuXML(): string {
     return `<GetDigits timeout="5" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/veterinary">
-    <Say voice="woman">
-      Press 1 to describe your animal's symptoms. 
-      Fún àpejuwe ààmì ẹranko yín, ẹ tẹ ọ̀kan.  
-      Don bayyana alamomin dabbar ku, danna ɗaya.  
-
-      Press 2 for general health advice. 
-      Fún ìmọ̀ràn ìlera gbogbogbò, ẹ tẹ ẹ̀ẹ̀jì.  
-      Don shawarwari na lafiyar dabba, danna biyu.  
-
-      Press 3 for vaccination schedules. 
-      Fún àtòjọ ìtọ́jú ajesara, ẹ tẹ mẹ́ta.  
-      Don jadawalin rigakafi, danna uku.  
-
-      Press 4 to speak with a veterinarian. 
-      Fún sísọ̀rọ̀ pẹ̀lú oníwòsàn ẹranko, ẹ tẹ mẹ́rin.  
-      Don yin magana da likitan dabbobi, danna huɗu.  
-
-      Press 9 to return to main menu. 
-      Fún padà sí àkójọ àkọ́kọ́, ẹ tẹ mẹ́sàn-án.  
-      Don komawa babban menu, danna tara.
-    </Say>
+    <Say voice="woman">Press 1 to describe your animal's symptoms. Press 2 for general health advice. Press 3 for vaccination schedules. Press 4 to speak with a veterinarian. Press 9 to return to main menu.</Say>
   </GetDigits>`;
   }
 
