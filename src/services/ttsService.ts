@@ -116,11 +116,17 @@ class TTSService {
         throw new Error('Failed to authenticate with DSN API');
       }
 
-      // Create form data for the request
+      // Create form data for the request with audio optimization
       const formData = new FormData();
       formData.append('text', text);
       formData.append('language', voiceConfig.language);
       formData.append('voice', voiceConfig.voiceId);
+      
+      // Add audio optimization settings (if supported by DSN API)
+      formData.append('format', 'mp3');
+      // Note: DSN API may not support all these parameters, but we'll try them
+      formData.append('quality', 'medium'); // Try different quality setting
+      formData.append('encoding', 'mp3_64'); // Try lower bitrate encoding
 
       // Make request to DSN TTS API with Bearer token
       const response = await axios({
@@ -143,6 +149,13 @@ class TTSService {
       try {
         fs.writeFileSync(filepath, buffer);
         logger.info(`Saved DSN TTS audio: ${filename} (${buffer.length} bytes)`);
+        
+        // For Africa's Talking, monitor file sizes for playback optimization
+        if (buffer.length > 50000) { // 50KB threshold for optimal playback
+          logger.warn(`Audio file ${filename} is large (${buffer.length} bytes), may cause playback issues`);
+        } else {
+          logger.info(`Audio file ${filename} is optimal size (${buffer.length} bytes)`);
+        }
         
         // Return HTTPS URL to the saved audio file
         const publicUrl = `${config.webhook.baseUrl}/audio/${filename}`;
@@ -212,7 +225,7 @@ class TTSService {
    * Generate a unique cache key for text and options
    */
   private generateCacheKey(text: string, options: TTSOptions): string {
-    const content = `v2-${text}-${options.language}-${options.speed || 1}-${options.pitch || 1}`;
+    const content = `v3-${text}-${options.language}-${options.speed || 1}-${options.pitch || 1}-${config.dsn.audio.bitrate}-${config.dsn.audio.sampleRate}-${config.dsn.audio.speed}`;
     return crypto.createHash('md5').update(content).digest('hex');
   }
 

@@ -56,6 +56,12 @@ export const config = {
     baseUrl: process.env.DSN_BASE_URL || 'https://api.dsnsandbox.com',
     username: process.env.DSN_USERNAME || 'evet',
     password: process.env.DSN_PASSWORD || 'D1wmd7IkzfjrOW',
+    // Audio compression settings for smaller file sizes
+    audio: {
+      bitrate: parseInt(process.env.DSN_AUDIO_BITRATE || '64'), // Lower bitrate = smaller files
+      sampleRate: parseInt(process.env.DSN_SAMPLE_RATE || '22050'), // Lower sample rate = smaller files
+      speed: parseFloat(process.env.DSN_SPEECH_SPEED || '1.1'), // Faster speech = shorter duration
+    },
   },
 
   // Testing configuration

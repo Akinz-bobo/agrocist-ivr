@@ -177,24 +177,24 @@ class AfricasTalkingService {
    */
   private async generateMultiLanguageWelcome(): Promise<string> {
     try {
-      // Base welcome message
-      const baseWelcome = "Welcome to Agrocist, your trusted livestock farming partner.";
+      // Base welcome message - shorter for smaller audio files
+      const baseWelcome = "Welcome to Agrocist.";
       const baseAudioUrl = await this.generateTTSAudio(baseWelcome, 'en');
       
       // English option
       const englishOption = "Press 1 for English.";
       const englishAudioUrl = await this.generateTTSAudio(englishOption, 'en');
       
-      // Yoruba option - spoken in Yoruba voice
-      const yorubaOption = "Fún Èdè Yorùbá, ẹ tẹ ẹ̀ẹ̀jì.";
+      // Yoruba option - shorter
+      const yorubaOption = "Press 2 for Yoruba.";
       const yorubaAudioUrl = await this.generateTTSAudio(yorubaOption, 'yo');
       
-      // Hausa option - spoken in Hausa voice
-      const hausaOption = "Don Hausa, danna uku.";
+      // Hausa option - shorter  
+      const hausaOption = "Press 3 for Hausa.";
       const hausaAudioUrl = await this.generateTTSAudio(hausaOption, 'ha');
       
-      // Common options in English
-      const commonOptions = "Press 4 to repeat this menu. Press 0 to end the call.";
+      // Common options - shorter
+      const commonOptions = "Press 0 to end call.";
       const commonAudioUrl = await this.generateTTSAudio(commonOptions, 'en');
       
       // Build XML with multiple play tags for different voices
