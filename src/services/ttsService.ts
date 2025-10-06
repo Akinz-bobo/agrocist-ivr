@@ -58,6 +58,8 @@ class TTSService {
     this.dsnUsername = config.dsn.username;
     this.dsnPassword = config.dsn.password;
     this.ensureAudioDirectory();
+    // Clear cache to force regeneration with new URL format
+    this.clearCache();
     logger.info(`TTS Service initialized with DSN API: ${this.dsnBaseUrl}`);
   }
 
@@ -137,19 +139,23 @@ class TTSService {
       const filename = `${this.generateCacheKey(text, options)}.mp3`;
       const filepath = path.join(this.audioDir, filename);
       
-      // Try to save to file system for caching but always use data URL
+      // Save to file system and return public URL
       try {
         fs.writeFileSync(filepath, buffer);
         logger.info(`Saved DSN TTS audio: ${filename} (${buffer.length} bytes)`);
+        
+        // Return HTTPS URL to the saved audio file
+        const publicUrl = `${config.webhook.baseUrl}/audio/${filename}`;
+        logger.info(`Generated HTTPS URL for TTS audio: ${publicUrl} (${buffer.length} bytes)`);
+        return publicUrl;
       } catch (fsError) {
-        logger.warn('Could not save audio file to disk, using memory cache only');
+        logger.warn('Could not save audio file to disk, falling back to data URL');
+        // Fallback to data URL if file cannot be saved
+        const base64 = buffer.toString('base64');
+        const dataUrl = `data:audio/mp3;base64,${base64}`;
+        logger.info(`Generated fallback data URL for TTS audio (${buffer.length} bytes)`);
+        return dataUrl;
       }
-      
-      // Always return data URL to avoid external URL dependencies
-      const base64 = buffer.toString('base64');
-      const dataUrl = `data:audio/mp3;base64,${base64}`;
-      logger.info(`Generated data URL for TTS audio (${buffer.length} bytes)`);
-      return dataUrl;
     } catch (error: any) {
       logger.error('DSN TTS API error:', error);
       throw new Error(`DSN TTS failed: ${error.response?.data || error.message}`);
@@ -206,7 +212,7 @@ class TTSService {
    * Generate a unique cache key for text and options
    */
   private generateCacheKey(text: string, options: TTSOptions): string {
-    const content = `${text}-${options.language}-${options.speed || 1}-${options.pitch || 1}`;
+    const content = `v2-${text}-${options.language}-${options.speed || 1}-${options.pitch || 1}`;
     return crypto.createHash('md5').update(content).digest('hex');
   }
 

@@ -27,7 +27,7 @@ class AfricasTalkingService {
 
     switch (nextAction) {
       case "menu":
-        response += await this.getMainMenuXML(language);
+        response += await this.getMainMenuXML();
         break;
       case "record":
         response += await this.getRecordingXML(language);
@@ -43,7 +43,7 @@ class AfricasTalkingService {
           `  <Say voice="woman">${endText}</Say>\n  <Hangup/>`;
         break;
       default:
-        response += await this.getMainMenuXML(language);
+        response += await this.getMainMenuXML();
     }
 
     response += `
@@ -55,20 +55,20 @@ class AfricasTalkingService {
   async generateWelcomeResponse(): Promise<string> {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.getMainMenuXML('en')}
+  ${await this.getMainMenuXML()}
 </Response>`;
   }
 
-  async generateMenuResponse(menuType: string, language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
+  async generateMenuResponse(menuType: string): Promise<string> {
     let menuXML = "";
 
     switch (menuType) {
       case "main":
       case "language":
-        menuXML = await this.getMainMenuXML(language);
+        menuXML = await this.getMainMenuXML();
         break;
       default:
-        menuXML = await this.getMainMenuXML(language);
+        menuXML = await this.getMainMenuXML();
     }
 
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -103,7 +103,7 @@ class AfricasTalkingService {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${playTag}
-  ${await this.getMainMenuXML(language)}
+  ${await this.getMainMenuXML()}
 </Response>`;
   }
 
@@ -117,7 +117,7 @@ class AfricasTalkingService {
   async generateLanguageMenuResponse(): Promise<string> {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.getMainMenuXML('en')}
+  ${await this.getMainMenuXML()}
 </Response>`;
   }
 
@@ -139,7 +139,7 @@ class AfricasTalkingService {
 </Response>`;
   }
 
-  generatePostAIMenuResponse(language: string): string {
+  async generatePostAIMenuResponse(language: string): Promise<string> {
     const prompts = {
       en: "Would you like to speak with a human veterinary expert? Press 1 to speak with an expert, or press 0 to end the call.",
       yo: "Ṣé ẹ fẹ́ bá amọ̀ràn oníwòsàn ẹranko sọ̀rọ̀? Ẹ tẹ́ ọ̀kan láti bá amọ̀ràn sọ̀rọ̀, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
@@ -147,25 +147,81 @@ class AfricasTalkingService {
     };
 
     const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
+    const langCode = (language as 'en' | 'yo' | 'ha') || 'en';
+    
+    // Generate TTS audio with appropriate voice for the language
+    const audioUrl = await this.generateTTSAudio(prompt, langCode);
+    const playTag = audioUrl ? `<Play url="${audioUrl}"/>` : `<Say voice="woman">${prompt}</Say>`;
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="woman">${prompt}</Say>
+  ${playTag}
   <GetDigits timeout="8" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai">
-    <Say voice="woman">${prompt}</Say>
+    ${playTag}
   </GetDigits>
 </Response>`;
   }
 
   // MAIN MENU
-  private async getMainMenuXML(language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
-    const welcomeText = this.getLocalizedText('welcome', language);
-    const audioUrl = await this.generateTTSAudio(welcomeText, language);
-    const playTag = audioUrl ? `<Play url="${audioUrl}"/>` : `<Say voice="woman">${welcomeText}</Say>`;
+  private async getMainMenuXML(): Promise<string> {
+    // Generate multi-language welcome message with appropriate voices
+    const welcomeXML = await this.generateMultiLanguageWelcome();
     
     return `<GetDigits timeout="8" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language">
-    ${playTag}
+    ${welcomeXML}
   </GetDigits>`;
+  }
+
+  /**
+   * Generate multi-language welcome message with appropriate voices for each language
+   */
+  private async generateMultiLanguageWelcome(): Promise<string> {
+    try {
+      // Base welcome message
+      const baseWelcome = "Welcome to Agrocist, your trusted livestock farming partner.";
+      const baseAudioUrl = await this.generateTTSAudio(baseWelcome, 'en');
+      
+      // English option
+      const englishOption = "Press 1 for English.";
+      const englishAudioUrl = await this.generateTTSAudio(englishOption, 'en');
+      
+      // Yoruba option - spoken in Yoruba voice
+      const yorubaOption = "Fún Èdè Yorùbá, ẹ tẹ ẹ̀ẹ̀jì.";
+      const yorubaAudioUrl = await this.generateTTSAudio(yorubaOption, 'yo');
+      
+      // Hausa option - spoken in Hausa voice
+      const hausaOption = "Don Hausa, danna uku.";
+      const hausaAudioUrl = await this.generateTTSAudio(hausaOption, 'ha');
+      
+      // Common options in English
+      const commonOptions = "Press 4 to repeat this menu. Press 0 to end the call.";
+      const commonAudioUrl = await this.generateTTSAudio(commonOptions, 'en');
+      
+      // Build XML with multiple play tags for different voices
+      let xml = '';
+      
+      // Base welcome
+      xml += baseAudioUrl ? `<Play url="${baseAudioUrl}"/>` : `<Say voice="woman">${baseWelcome}</Say>`;
+      
+      // English option
+      xml += baseAudioUrl ? `<Play url="${englishAudioUrl}"/>` : `<Say voice="woman">${englishOption}</Say>`;
+      
+      // Yoruba option with Yoruba voice
+      xml += yorubaAudioUrl ? `<Play url="${yorubaAudioUrl}"/>` : `<Say voice="woman">${yorubaOption}</Say>`;
+      
+      // Hausa option with Hausa voice
+      xml += hausaAudioUrl ? `<Play url="${hausaAudioUrl}"/>` : `<Say voice="woman">${hausaOption}</Say>`;
+      
+      // Common options in English
+      xml += commonAudioUrl ? `<Play url="${commonAudioUrl}"/>` : `<Say voice="woman">${commonOptions}</Say>`;
+      
+      return xml;
+    } catch (error) {
+      logger.error('Error generating multi-language welcome:', error);
+      // Fallback to simple English welcome
+      const fallbackText = "Welcome to Agrocist, your trusted livestock farming partner. Press 1 for English, 2 for Yoruba, 3 for Hausa. Press 4 to repeat this menu. Press 0 to end the call.";
+      return `<Say voice="woman">${fallbackText}</Say>`;
+    }
   }
 
 
@@ -246,7 +302,7 @@ class AfricasTalkingService {
   /**
    * Generate TTS audio for text in specified language
    */
-  private async generateTTSAudio(text: string, language: 'en' | 'yo' | 'ha'): Promise<string | null> {
+  async generateTTSAudio(text: string, language: 'en' | 'yo' | 'ha'): Promise<string | null> {
     try {
       const options: TTSOptions = { language };
       const result = await ttsService.generateSpeech(text, options);

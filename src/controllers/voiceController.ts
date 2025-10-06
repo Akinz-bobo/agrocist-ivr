@@ -141,9 +141,10 @@ class VoiceController {
             break;
             
           case 0: // End call
+            const goodbyeMessage = this.getGoodbyeMessage(selectedLanguage as 'en' | 'yo' | 'ha');
             responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="woman">Thank you for calling Agrocist. Have a great day!</Say>
+  ${await this.generateLanguageSpecificSay(goodbyeMessage, selectedLanguage as 'en' | 'yo' | 'ha')}
   <Hangup/>
 </Response>`;
             break;
@@ -204,9 +205,13 @@ class VoiceController {
       }
 
       // First, acknowledge the recording and let user know we're processing
+      // Get session language for appropriate voice
+      const session = sessionManager.getSession(sessionId);
+      const sessionLanguage = session?.context?.language || 'en';
+      const processingMessage = this.getProcessingMessage(sessionLanguage);
       const processingXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="woman">Thank you for your question. Agrocist is analyzing your concern. Please wait a moment for your response.</Say>
+  ${await this.generateLanguageSpecificSay(processingMessage, sessionLanguage)}
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
       
@@ -241,7 +246,7 @@ class VoiceController {
       if (!dtmfDigits) {
         const session = sessionManager.getSession(sessionId);
         const language = languageParam || session?.context?.language || 'en';
-        const responseXML = africasTalkingService.generatePostAIMenuResponse(language);
+        const responseXML = await africasTalkingService.generatePostAIMenuResponse(language);
         
         res.set('Content-Type', 'application/xml');
         res.send(responseXML);
@@ -258,18 +263,21 @@ class VoiceController {
           break;
           
         case 0: // End call
+          const endSession = sessionManager.getSession(sessionId);
+          const endLanguage = (languageParam || endSession?.context?.language || 'en') as 'en' | 'yo' | 'ha';
+          const endGoodbyeMessage = this.getGoodbyeMessage(endLanguage);
           responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="woman">Thank you for using Agrocist. Have a great day!</Say>
+  ${await this.generateLanguageSpecificSay(endGoodbyeMessage, endLanguage)}
   <Hangup/>
 </Response>`;
           break;
           
         default:
           // Get session to determine language for repeat prompt
-          const session = sessionManager.getSession(sessionId);
-          const language = languageParam || session?.context?.language || 'en';
-          responseXML = africasTalkingService.generatePostAIMenuResponse(language);
+          const defaultSession = sessionManager.getSession(sessionId);
+          const language = languageParam || defaultSession?.context?.language || 'en';
+          responseXML = await africasTalkingService.generatePostAIMenuResponse(language);
       }
       
       res.set('Content-Type', 'application/xml');
@@ -320,7 +328,7 @@ class VoiceController {
       // Generate response with AI answer and redirect to post-AI menu
       const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="woman">${cleanedResponse}</Say>
+  ${await this.generateLanguageSpecificSay(cleanedResponse, language)}
   <Redirect>${config.webhook.baseUrl}/voice/post-ai?session=${sessionId}&language=${language}</Redirect>
 </Response>`;
       
@@ -345,6 +353,48 @@ class VoiceController {
       .replace(/\n/g, '. ') // Replace newlines with periods
       .replace(/\s+/g, ' ') // Remove extra spaces
       .trim();
+  }
+
+  /**
+   * Generate language-specific Say tag using TTS when available, fallback to default voice
+   */
+  private async generateLanguageSpecificSay(text: string, language: 'en' | 'yo' | 'ha'): Promise<string> {
+    try {
+      // Try to generate TTS audio with appropriate voice for the language
+      const audioUrl = await africasTalkingService.generateTTSAudio(text, language);
+      if (audioUrl) {
+        return `<Play url="${audioUrl}"/>`;
+      }
+    } catch (error) {
+      logger.warn(`Failed to generate TTS for language ${language}, falling back to Say tag:`, error);
+    }
+    
+    // Fallback to Say tag
+    return `<Say voice="woman">${text}</Say>`;
+  }
+
+  /**
+   * Get processing message in appropriate language
+   */
+  private getProcessingMessage(language: 'en' | 'yo' | 'ha'): string {
+    const messages = {
+      en: "Thank you for your question. Agrocist is analyzing your concern. Please wait a moment for your response.",
+      yo: "A dúpẹ́ fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìṣòro yín. Ẹ dúró díẹ̀ fún ìdáhùn yín.",
+      ha: "Na gode da tambayar ku. Agrocist yana nazarin damuwar ku. Don Allah ku jira na ɗan lokaci don amsar ku."
+    };
+    return messages[language] || messages.en;
+  }
+
+  /**
+   * Get goodbye message in appropriate language
+   */
+  private getGoodbyeMessage(language: 'en' | 'yo' | 'ha'): string {
+    const messages = {
+      en: "Thank you for using Agrocist. Have a great day!",
+      yo: "A dúpẹ́ fún lilo Agrocist. Ẹ ní ọjọ́ tí ó dára!",
+      ha: "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!"
+    };
+    return messages[language] || messages.en;
   }
   
 }
