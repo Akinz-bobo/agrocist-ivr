@@ -5,7 +5,6 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "npm run build && node dist/index.js",
-    "start:render": "npm run build && cd .. && node \"Africa's Talking IVR/dist/index.js\"",
     "dev": "nodemon src/index.ts",
     "build": "tsc",
     "test": "jest",

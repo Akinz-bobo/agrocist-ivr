@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 // Test script to simulate Africa's Talking webhook calls
-const BASE_URL = 'http://localhost:3000'; // Change to your ngrok URL when testing
+const BASE_URL = 'http://localhost:3000';
 
 async function testLiveIntegration() {
   console.log('🧪 Testing Live Africa\'s Talking Integration\n');
