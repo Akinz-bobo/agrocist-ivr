@@ -5,17 +5,34 @@ import logger from './logger';
 
 class SessionManager {
   private redisClient;
+  private memoryStore: Map<string, CallSession> = new Map();
+  private isRedisConnected = false;
   
   constructor() {
-    this.redisClient = createClient({
-      url: config.database.redisUrl
-    });
-    
-    this.redisClient.on('error', (err) => {
-      logger.error('Redis Client Error:', err);
-    });
-    
-    this.redisClient.connect();
+    this.initializeRedis();
+  }
+  
+  private async initializeRedis() {
+    try {
+      this.redisClient = createClient({
+        url: config.database.redisUrl
+      });
+      
+      this.redisClient.on('error', (err) => {
+        logger.error('Redis Client Error:', err);
+        this.isRedisConnected = false;
+      });
+      
+      this.redisClient.on('connect', () => {
+        logger.info('Redis connected successfully');
+        this.isRedisConnected = true;
+      });
+      
+      await this.redisClient.connect();
+    } catch (error) {
+      logger.warn('Redis connection failed, falling back to memory storage:', error);
+      this.isRedisConnected = false;
+    }
   }
   
   async createSession(sessionId: string, callerNumber: string): Promise<CallSession> {
@@ -38,34 +55,58 @@ class SessionManager {
   
   async getSession(sessionId: string): Promise<CallSession | null> {
     try {
-      const sessionData = await this.redisClient.get(`session:${sessionId}`);
-      if (!sessionData) {
-        return null;
+      if (this.isRedisConnected) {
+        const sessionData = await this.redisClient.get(`session:${sessionId}`);
+        if (!sessionData) {
+          return null;
+        }
+        
+        const session = JSON.parse(sessionData) as CallSession;
+        session.startTime = new Date(session.startTime);
+        session.aiInteractions = session.aiInteractions.map(interaction => ({
+          ...interaction,
+          timestamp: new Date(interaction.timestamp)
+        }));
+        
+        return session;
+      } else {
+        // Use memory store fallback
+        return this.memoryStore.get(sessionId) || null;
       }
-      
-      const session = JSON.parse(sessionData) as CallSession;
-      session.startTime = new Date(session.startTime);
-      session.aiInteractions = session.aiInteractions.map(interaction => ({
-        ...interaction,
-        timestamp: new Date(interaction.timestamp)
-      }));
-      
-      return session;
     } catch (error) {
       logger.error(`Error getting session ${sessionId}:`, error);
-      return null;
+      // Fallback to memory store
+      return this.memoryStore.get(sessionId) || null;
     }
   }
   
   async saveSession(session: CallSession): Promise<void> {
     try {
-      await this.redisClient.setEx(
-        `session:${session.sessionId}`,
-        3600, // 1 hour expiry
-        JSON.stringify(session)
-      );
+      if (this.isRedisConnected) {
+        await this.redisClient.setEx(
+          `session:${session.sessionId}`,
+          3600, // 1 hour expiry
+          JSON.stringify(session)
+        );
+      } else {
+        // Use memory store fallback
+        this.memoryStore.set(session.sessionId, session);
+        // Clean up old sessions in memory (simple cleanup)
+        this.cleanupMemoryStore();
+      }
     } catch (error) {
       logger.error(`Error saving session ${session.sessionId}:`, error);
+      // Fallback to memory store
+      this.memoryStore.set(session.sessionId, session);
+    }
+  }
+  
+  private cleanupMemoryStore(): void {
+    const oneHourAgo = new Date(Date.now() - 3600000); // 1 hour ago
+    for (const [sessionId, session] of this.memoryStore.entries()) {
+      if (session.startTime < oneHourAgo) {
+        this.memoryStore.delete(sessionId);
+      }
     }
   }
   
