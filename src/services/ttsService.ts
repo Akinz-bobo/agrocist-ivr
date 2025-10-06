@@ -132,23 +132,24 @@ class TTSService {
         responseType: 'arraybuffer' // Expect MP3 binary data
       });
 
-      // Save the MP3 file
+      // Save the MP3 file and always return data URL for reliability
       const buffer = Buffer.from(response.data);
       const filename = `${this.generateCacheKey(text, options)}.mp3`;
       const filepath = path.join(this.audioDir, filename);
       
-      // Try to save to file system
+      // Try to save to file system for caching but always use data URL
       try {
         fs.writeFileSync(filepath, buffer);
-        const audioUrl = `${config.webhook.baseUrl}/audio/${filename}`;
         logger.info(`Saved DSN TTS audio: ${filename} (${buffer.length} bytes)`);
-        return audioUrl;
       } catch (fsError) {
-        // If file system is not available (like on Render), return a data URL
-        logger.warn('Could not save audio file to disk, using data URL');
-        const base64 = buffer.toString('base64');
-        return `data:audio/mp3;base64,${base64}`;
+        logger.warn('Could not save audio file to disk, using memory cache only');
       }
+      
+      // Always return data URL to avoid external URL dependencies
+      const base64 = buffer.toString('base64');
+      const dataUrl = `data:audio/mp3;base64,${base64}`;
+      logger.info(`Generated data URL for TTS audio (${buffer.length} bytes)`);
+      return dataUrl;
     } catch (error: any) {
       logger.error('DSN TTS API error:', error);
       throw new Error(`DSN TTS failed: ${error.response?.data || error.message}`);
