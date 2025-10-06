@@ -50,6 +50,13 @@ export const config = {
     confidenceThreshold: parseFloat(process.env.AI_CONFIDENCE_THRESHOLD || '0.7'),
     maxRecordingDuration: parseInt(process.env.MAX_RECORDING_DURATION || '30'),
   },
+
+  // DSN TTS Service
+  dsn: {
+    baseUrl: process.env.DSN_BASE_URL || 'https://api.dsnsandbox.com',
+    username: process.env.DSN_USERNAME || 'evet',
+    password: process.env.DSN_PASSWORD || 'D1wmd7IkzfjrOW',
+  },
 };
 
 export default config;

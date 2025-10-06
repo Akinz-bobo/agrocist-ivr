@@ -66,7 +66,7 @@ class VoiceController {
       }
       
       // Generate welcome response
-      const welcomeXML = africasTalkingService.generateWelcomeResponse();
+      const welcomeXML = await africasTalkingService.generateWelcomeResponse();
       
       logger.info("🎤 SENDING IVR XML RESPONSE:", welcomeXML);
       res.set('Content-Type', 'application/xml');
@@ -75,7 +75,7 @@ class VoiceController {
     } catch (error) {
       logger.error('💥 ERROR handling incoming call:', error);
       res.set('Content-Type', 'application/xml');
-      res.send(africasTalkingService.generateErrorResponse());
+      res.send(await africasTalkingService.generateErrorResponse());
     }
   }
   
@@ -103,38 +103,55 @@ class VoiceController {
       const choice = africasTalkingService.extractMenuChoice(dtmfDigits || '');
       let responseXML = '';
       let selectedLanguage = 'en';
+      const ttsAvailable = africasTalkingService.isTTSAvailable();
       
-      switch (choice) {
-        case 1: // English
-          selectedLanguage = 'en';
-          responseXML = africasTalkingService.generateDirectRecordingResponse('en');
-          break;
-          
-        case 2: // Yoruba
-          selectedLanguage = 'yo';
-          responseXML = africasTalkingService.generateDirectRecordingResponse('yo');
-          break;
-          
-        case 3: // Hausa
-          selectedLanguage = 'ha';
-          responseXML = africasTalkingService.generateDirectRecordingResponse('ha');
-          break;
-          
-        case 4: // Repeat menu
-          responseXML = africasTalkingService.generateLanguageMenuResponse();
-          break;
-          
-        case 0: // End call
-          responseXML = `<?xml version="1.0" encoding="UTF-8"?>
+      // If TTS is not available, only allow English (option 1) or end call (option 0)
+      if (!ttsAvailable && typeof choice === 'number' && ![1, 0].includes(choice)) {
+        logger.warn(`TTS unavailable, rejecting non-English choice: ${choice} for session: ${sessionId}`);
+        responseXML = await africasTalkingService.generateLanguageMenuResponse();
+      } else {
+        switch (choice) {
+          case 1: // English
+            selectedLanguage = 'en';
+            responseXML = await africasTalkingService.generateDirectRecordingResponse('en');
+            break;
+            
+          case 2: // Yoruba (only if TTS available)
+            if (ttsAvailable) {
+              selectedLanguage = 'yo';
+              responseXML = await africasTalkingService.generateDirectRecordingResponse('yo');
+            } else {
+              logger.warn(`TTS unavailable, rejecting Yoruba choice for session: ${sessionId}`);
+              responseXML = await africasTalkingService.generateLanguageMenuResponse();
+            }
+            break;
+            
+          case 3: // Hausa (only if TTS available)
+            if (ttsAvailable) {
+              selectedLanguage = 'ha';
+              responseXML = await africasTalkingService.generateDirectRecordingResponse('ha');
+            } else {
+              logger.warn(`TTS unavailable, rejecting Hausa choice for session: ${sessionId}`);
+              responseXML = await africasTalkingService.generateLanguageMenuResponse();
+            }
+            break;
+            
+          case 4: // Repeat menu
+            responseXML = await africasTalkingService.generateLanguageMenuResponse();
+            break;
+            
+          case 0: // End call
+            responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="woman">Thank you for calling Agrocist. Have a great day!</Say>
   <Hangup/>
 </Response>`;
-          break;
-          
-        default:
-          logger.warn(`Invalid language choice: ${choice} for session: ${sessionId}`);
-          responseXML = africasTalkingService.generateLanguageMenuResponse();
+            break;
+            
+          default:
+            logger.warn(`Invalid language choice: ${choice} for session: ${sessionId}`);
+            responseXML = await africasTalkingService.generateLanguageMenuResponse();
+        }
       }
       
       // Store selected language in session if valid choice
@@ -150,7 +167,7 @@ class VoiceController {
     } catch (error) {
       logger.error('Error handling language selection:', error);
       res.set('Content-Type', 'application/xml');
-      res.send(africasTalkingService.generateErrorResponse());
+      res.send(await africasTalkingService.generateErrorResponse());
     }
   }
   
@@ -200,7 +217,7 @@ class VoiceController {
     } catch (error) {
       logger.error('💥 ERROR handling recording:', error);
       res.set('Content-Type', 'application/xml');
-      res.send(africasTalkingService.generateErrorResponse());
+      res.send(await africasTalkingService.generateErrorResponse());
     }
   }
 
@@ -237,7 +254,7 @@ class VoiceController {
       
       switch (choice) {
         case 1: // Speak with human expert
-          responseXML = africasTalkingService.generateTransferResponse();
+          responseXML = await africasTalkingService.generateTransferResponse();
           break;
           
         case 0: // End call
@@ -261,7 +278,7 @@ class VoiceController {
     } catch (error) {
       logger.error('Error handling post-AI:', error);
       res.set('Content-Type', 'application/xml');
-      res.send(africasTalkingService.generateErrorResponse());
+      res.send(await africasTalkingService.generateErrorResponse());
     }
   }
   
@@ -275,7 +292,7 @@ class VoiceController {
       if (!session || !session.context.recordingUrl) {
         logger.error(`No recording URL found for session: ${sessionId}`);
         res.set('Content-Type', 'application/xml');
-        res.send(africasTalkingService.generateErrorResponse());
+        res.send(await africasTalkingService.generateErrorResponse());
         return;
       }
 
@@ -314,7 +331,7 @@ class VoiceController {
     } catch (error) {
       logger.error('💥 ERROR processing AI request:', error);
       res.set('Content-Type', 'application/xml');
-      res.send(africasTalkingService.generateErrorResponse());
+      res.send(await africasTalkingService.generateErrorResponse());
     }
   }
   
