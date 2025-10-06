@@ -57,6 +57,14 @@ export const config = {
     username: process.env.DSN_USERNAME || 'evet',
     password: process.env.DSN_PASSWORD || 'D1wmd7IkzfjrOW',
   },
+
+  // Testing configuration
+  testing: {
+    // Set to true to use only Say tags (no TTS/Play tags) for testing
+    useSayOnly: process.env.USE_SAY_ONLY === 'true' || false,
+    // Force English only for testing
+    forceEnglishOnly: process.env.FORCE_ENGLISH_ONLY === 'true' || false,
+  },
 };
 
 export default config;

@@ -304,7 +304,16 @@ class AfricasTalkingService {
    */
   async generateTTSAudio(text: string, language: 'en' | 'yo' | 'ha'): Promise<string | null> {
     try {
-      const options: TTSOptions = { language };
+      // Check if we should use Say only for testing
+      if (config.testing.useSayOnly) {
+        logger.info('Using Say only mode for testing - skipping TTS generation');
+        return null; // Will use Say tag
+      }
+
+      // Force English only if testing flag is set
+      const actualLanguage = config.testing.forceEnglishOnly ? 'en' : language;
+      
+      const options: TTSOptions = { language: actualLanguage };
       const result = await ttsService.generateSpeech(text, options);
       // TTS succeeded, mark as available
       this.ttsAvailable = true;
