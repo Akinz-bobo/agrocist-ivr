@@ -61,7 +61,7 @@ class VoiceController {
 
       // Create session for the incoming call
       if (sessionId && callerNumber) {
-        await sessionManager.createSession(sessionId, callerNumber);
+        sessionManager.createSession(sessionId, callerNumber);
         logger.info(`📝 Created session for incoming call: ${sessionId}`);
       }
       
@@ -139,8 +139,8 @@ class VoiceController {
       
       // Store selected language in session if valid choice
       if (typeof choice === 'number' && [1, 2, 3].includes(choice)) {
-        await sessionManager.updateSessionContext(sessionId, { language: selectedLanguage });
-        await sessionManager.updateSessionMenu(sessionId, 'recording');
+        sessionManager.updateSessionContext(sessionId, { language: selectedLanguage });
+        sessionManager.updateSessionMenu(sessionId, 'recording');
         logger.info(`Language ${selectedLanguage} selected for session: ${sessionId}, going directly to recording`);
       }
       
@@ -169,7 +169,7 @@ class VoiceController {
         if (recording) {
           logger.info(`Session ${sessionId}: Recording completed. URL: ${recording}, Duration: ${callRecordingDurationInSeconds}s`);
           // Store recording URL for later processing
-          await sessionManager.updateSessionContext(sessionId, { 
+          sessionManager.updateSessionContext(sessionId, { 
             recordingUrl: recording,
             recordingDuration: callRecordingDurationInSeconds 
           });
@@ -180,7 +180,7 @@ class VoiceController {
       
       // Store recording URL for immediate processing
       if (recording) {
-        await sessionManager.updateSessionContext(sessionId, { 
+        sessionManager.updateSessionContext(sessionId, { 
           recordingUrl: recording,
           recordingDuration: callRecordingDurationInSeconds 
         });
@@ -222,7 +222,7 @@ class VoiceController {
 
       // If no DTMF digits, this is the initial redirect - show the post-AI menu
       if (!dtmfDigits) {
-        const session = await sessionManager.getSession(sessionId);
+        const session = sessionManager.getSession(sessionId);
         const language = languageParam || session?.context?.language || 'en';
         const responseXML = africasTalkingService.generatePostAIMenuResponse(language);
         
@@ -250,7 +250,7 @@ class VoiceController {
           
         default:
           // Get session to determine language for repeat prompt
-          const session = await sessionManager.getSession(sessionId);
+          const session = sessionManager.getSession(sessionId);
           const language = languageParam || session?.context?.language || 'en';
           responseXML = africasTalkingService.generatePostAIMenuResponse(language);
       }
@@ -271,7 +271,7 @@ class VoiceController {
       logger.info(`🤖 PROCESSING AI REQUEST for session: ${sessionId}`);
       
       // Get session data to retrieve recording URL
-      const session = await sessionManager.getSession(sessionId);
+      const session = sessionManager.getSession(sessionId);
       if (!session || !session.context.recordingUrl) {
         logger.error(`No recording URL found for session: ${sessionId}`);
         res.set('Content-Type', 'application/xml');
@@ -295,7 +295,7 @@ class VoiceController {
       logger.info(`🤖 AI Response: "${aiResponse.response}"`);
 
       // Store the AI interaction in session
-      await sessionManager.addAIInteraction(sessionId, farmerText, aiResponse.response, 0.9, 'veterinary');
+      sessionManager.addAIInteraction(sessionId, farmerText, aiResponse.response, 0.9, 'veterinary');
       
       // Clean up AI response - remove markdown and format for audio
       const cleanedResponse = this.cleanAIResponse(aiResponse.response);

@@ -22,7 +22,6 @@ export const config = {
   // Database
   database: {
     mongoUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/agrocist-ivr',
-    redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
   },
   
   // Security
