@@ -186,12 +186,17 @@ class AfricasTalkingService {
       const englishAudioUrl = await this.generateTTSAudio(englishOption, 'en');
       
       // Yoruba option - shorter
-      const yorubaOption = "Press 2 for Yoruba.";
+      const yorubaOption = "Tẹ ẹ̀ẹ́jì fún Èdè Yorùbá.";
       const yorubaAudioUrl = await this.generateTTSAudio(yorubaOption, 'yo');
       
       // Hausa option - shorter  
-      const hausaOption = "Press 3 for Hausa.";
+      const hausaOption = "Danna uku don Hausa.";
       const hausaAudioUrl = await this.generateTTSAudio(hausaOption, 'ha');
+
+      // To listen to options again
+      // Note: This may increase audio file size, consider removing if needed
+      const repeatOption = "Press 4 to repeat this menu.";
+      const repeatAudioUrl = await this.generateTTSAudio(repeatOption, 'en');
       
       // Common options - shorter
       const commonOptions = "Press 0 to end call.";
@@ -212,6 +217,8 @@ class AfricasTalkingService {
       // Hausa option with Hausa voice
       xml += hausaAudioUrl ? `<Play url="${hausaAudioUrl}"/>` : `<Say voice="woman">${hausaOption}</Say>`;
       
+      // Repeat option
+      xml += repeatAudioUrl ? `<Play url="${repeatAudioUrl}"/>` : `<Say voice="woman">${repeatOption}</Say>`;
       // Common options in English
       xml += commonAudioUrl ? `<Play url="${commonAudioUrl}"/>` : `<Say voice="woman">${commonOptions}</Say>`;
       
