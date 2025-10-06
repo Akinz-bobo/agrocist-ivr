@@ -107,17 +107,17 @@ class VoiceController {
       switch (choice) {
         case 1: // English
           selectedLanguage = 'en';
-          responseXML = africasTalkingService.generateAIServiceMenuResponse('en');
+          responseXML = africasTalkingService.generateDirectRecordingResponse('en');
           break;
           
         case 2: // Yoruba
           selectedLanguage = 'yo';
-          responseXML = africasTalkingService.generateAIServiceMenuResponse('yo');
+          responseXML = africasTalkingService.generateDirectRecordingResponse('yo');
           break;
           
         case 3: // Hausa
           selectedLanguage = 'ha';
-          responseXML = africasTalkingService.generateAIServiceMenuResponse('ha');
+          responseXML = africasTalkingService.generateDirectRecordingResponse('ha');
           break;
           
         case 4: // Repeat menu
@@ -140,8 +140,8 @@ class VoiceController {
       // Store selected language in session if valid choice
       if (typeof choice === 'number' && [1, 2, 3].includes(choice)) {
         await sessionManager.updateSessionContext(sessionId, { language: selectedLanguage });
-        await sessionManager.updateSessionMenu(sessionId, 'ai_service');
-        logger.info(`Language ${selectedLanguage} selected for session: ${sessionId}`);
+        await sessionManager.updateSessionMenu(sessionId, 'recording');
+        logger.info(`Language ${selectedLanguage} selected for session: ${sessionId}, going directly to recording`);
       }
       
       res.set('Content-Type', 'application/xml');

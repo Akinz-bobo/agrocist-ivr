@@ -59,12 +59,6 @@ class AfricasTalkingService {
       case "language":
         menuXML = this.getMainMenuXML();
         break;
-      case "products":
-        menuXML = this.getProductMenuXML();
-        break;
-      case "veterinary":
-        menuXML = this.getVeterinaryMenuXML();
-        break;
       default:
         menuXML = this.getMainMenuXML();
     }
@@ -113,7 +107,7 @@ class AfricasTalkingService {
 </Response>`;
   }
 
-  generateAIServiceMenuResponse(language: string): string {
+  generateDirectRecordingResponse(language: string): string {
     const prompts = {
       en: "You have selected English. Please describe your livestock concern. Speak clearly after the beep and press hash when done.",
       yo: "Ẹ ti yan Èdè Yorùbá. Ẹ sọ ìṣòro ẹranko yín kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
@@ -154,19 +148,6 @@ class AfricasTalkingService {
   </GetDigits>`;
   }
 
-  // PRODUCT MENU
-  private getProductMenuXML(): string {
-    return `<GetDigits timeout="5" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/products">
-    <Say voice="woman">Press 1 for livestock medications. Press 2 for animal feed and supplements. Press 3 for treatment equipment. Press 9 to return to main menu. Press star to repeat this menu.</Say>
-  </GetDigits>`;
-  }
-
-  // VETERINARY MENU
-  private getVeterinaryMenuXML(): string {
-    return `<GetDigits timeout="5" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/veterinary">
-    <Say voice="woman">Press 1 to describe your animal's symptoms. Press 2 for general health advice. Press 3 for vaccination schedules. Press 4 to speak with a veterinarian. Press 9 to return to main menu.</Say>
-  </GetDigits>`;
-  }
 
   private getRecordingXML(): string {
     return `<Record timeout="10" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
