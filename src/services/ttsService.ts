@@ -140,9 +140,9 @@ class TTSService {
         responseType: 'arraybuffer' // Expect MP3 binary data
       });
 
-      // Save the MP3 file and always return data URL for reliability
+      // Save the WAV file and always return data URL for reliability
       const buffer = Buffer.from(response.data);
-      const filename = `${this.generateCacheKey(text, options)}.mp3`;
+      const filename = `${this.generateCacheKey(text, options)}.wav`;
       const filepath = path.join(this.audioDir, filename);
       
       // Save to file system and return public URL
