@@ -4,6 +4,7 @@ import cors from 'cors';
 import config from './config';
 import logger from './utils/logger';
 import voiceRoutes from './routes/voice';
+import audioPrewarmService from './services/audioPrewarmService';
 
 const app = express();
 
@@ -85,7 +86,7 @@ process.on('SIGINT', () => {
 });
 
 // Start server
-const server = app.listen(config.port, () => {
+const server = app.listen(config.port, async () => {
   logger.info(`Agrocist IVR server starting on port ${config.port}`);
   logger.info(`Environment: ${config.nodeEnv}`);
   logger.info('Available endpoints:');
@@ -93,6 +94,14 @@ const server = app.listen(config.port, () => {
   logger.info('  POST /voice/menu - Menu selections');
   logger.info('  POST /voice/recording - Voice recordings');
   logger.info('  GET /health - Health check');
+
+  // Pre-warm audio cache in the background for instant responses
+  logger.info('🔥 Starting audio pre-warming in background...');
+  audioPrewarmService.prewarmAudio().then(() => {
+    logger.info('✅ Audio pre-warming completed - system ready for ultra-fast responses!');
+  }).catch((error) => {
+    logger.warn('⚠️ Audio pre-warming failed, but system will continue:', error);
+  });
 });
 
 export default app;

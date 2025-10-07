@@ -6,16 +6,16 @@ An AI-powered Interactive Voice Response (IVR) system designed specifically for 
 
 ### Current Version (v0.1.0)
 - ✅ Basic call handling with Africa's Talking
-- ✅ English-language support
+- ✅ Multi-language support (English, Yoruba, Hausa)
 - ✅ AI-powered veterinary advice using OpenAI GPT-4o
-- ✅ Multi-level menu system (Farm Records, Veterinary Help, Product Orders, Agent Transfer)
+- ✅ DSN TTS integration for natural speech
 - ✅ Comprehensive livestock knowledge base (cattle, poultry, goats, sheep, pigs)
 - ✅ Veterinary agent handoff capability
-- ✅ Call session management with Redis
+- ✅ In-memory call session management
+- ✅ Audio compression and caching for fast responses
 - ✅ Detailed logging and monitoring
 
 ### Upcoming Features
-- 🔄 Multi-language support (Yoruba, Hausa) - v0.2.0
 - 🔄 Farm record integration - v0.2.0
 - 🔄 Product ordering system - v0.2.0
 - 🔄 Advanced speech recognition - v0.3.0
@@ -28,7 +28,7 @@ The system follows a microservices-inspired architecture with the following comp
 ```
 Caller → Africa's Talking → IVR Gateway → AI Service → Response
                                      ↓
-                            Session Manager (Redis)
+                            Session Manager (In-Memory)
                                      ↓
                               Knowledge Base
 ```
@@ -37,10 +37,11 @@ Caller → Africa's Talking → IVR Gateway → AI Service → Response
 
 ### Prerequisites
 - Node.js 20+
-- Redis server
 - MongoDB (for future versions)
 - Africa's Talking account
 - OpenAI API key
+- DSN API account (for TTS)
+- ffmpeg (optional, for audio compression)
 
 ### Installation
 
@@ -67,8 +68,10 @@ AT_SHORT_CODE=your_phone_number
 # OpenAI
 OPENAI_API_KEY=your_openai_api_key
 
-# Database
-REDIS_URL=redis://localhost:6379
+# DSN TTS
+DSN_BASE_URL=https://api.dsnsandbox.com
+DSN_USERNAME=your_dsn_username
+DSN_PASSWORD=your_dsn_password
 
 # Webhook
 WEBHOOK_BASE_URL=https://your-domain.com
@@ -157,14 +160,19 @@ The system uses advanced AI to:
 2. Add to `.env` file
 3. Ensure sufficient credits for API usage
 
-### Redis Setup
-```bash
-# Install Redis
-brew install redis  # macOS
-sudo apt install redis-server  # Ubuntu
+### DSN TTS Setup
+1. Sign up for DSN API account
+2. Get credentials (username and password)
+3. Add to `.env` file
 
-# Start Redis
-redis-server
+### Optional: ffmpeg for Audio Compression
+```bash
+# Install ffmpeg
+brew install ffmpeg  # macOS
+sudo apt install ffmpeg  # Ubuntu
+
+# The system will automatically detect and use ffmpeg if available
+# Audio files will be compressed to ~20-40KB (80%+ reduction)
 ```
 
 ## Development
@@ -194,7 +202,10 @@ Handles voice call management, DTMF processing, and XML response generation.
 Comprehensive database of livestock health information, treatments, and preventive care.
 
 #### SessionManager
-Redis-based session management for maintaining call state and context.
+In-memory session management for maintaining call state and context.
+
+#### TTSService
+DSN TTS integration with audio caching and compression for fast, efficient audio generation.
 
 ### Scripts
 ```bash

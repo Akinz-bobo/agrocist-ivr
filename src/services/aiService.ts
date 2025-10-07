@@ -13,18 +13,24 @@ class AIService {
   }
   
   async processVeterinaryQuery(query: string, context?: any): Promise<IVRResponse> {
+    const startTime = Date.now();
     try {
       // Check if we have a valid API key
       if (!config.openai.apiKey || config.openai.apiKey === 'test_openai_key') {
         logger.info('Using mock AI response (no valid OpenAI key)');
         return this.getMockVeterinaryResponse(query, context?.language);
       }
-      
+
       const prompt = this.buildVeterinaryPrompt(query, context);
       const language = context?.language || 'en';
-      
+
+      // Use faster model for quicker responses (gpt-4o-mini is much faster than gpt-4o)
+      const model = config.openai.model.includes('mini') ? config.openai.model : 'gpt-4o-mini';
+
+      logger.info(`⚡ Starting AI query with model: ${model}`);
+
       const completion = await this.openai.chat.completions.create({
-        model: config.openai.model,
+        model: model,
         messages: [
           {
             role: "system",
@@ -35,25 +41,31 @@ class AIService {
             content: prompt
           }
         ],
-        temperature: 0.3,
-        max_tokens: 300
+        temperature: 0.2, // Lower for faster, more deterministic responses
+        max_tokens: 200, // Reduced for faster responses (we want SHORT answers anyway)
+        top_p: 0.9, // Slightly reduce token sampling for speed
+        frequency_penalty: 0.0,
+        presence_penalty: 0.0
       });
-      
+
+      const aiTime = Date.now() - startTime;
+
       const response = completion.choices[0]?.message?.content || '';
       if (!response) {
         throw new Error('Empty response from AI service');
       }
       const confidence = this.calculateConfidence(response, query);
-      
-      logger.info(`AI processed veterinary query with confidence: ${confidence}`);
-      
+
+      logger.info(`⚡ AI processed veterinary query in ${aiTime}ms with confidence: ${confidence}`);
+
       return {
         response: this.formatForAudio(response),
         nextAction: confidence < config.ai.confidenceThreshold ? 'transfer' : 'menu'
       };
-      
+
     } catch (error) {
-      logger.error('Error processing veterinary query:', error);
+      const totalTime = Date.now() - startTime;
+      logger.error(`Error processing veterinary query after ${totalTime}ms:`, error);
       return {
         response: "I'm having trouble processing your request right now. Let me connect you with one of our veterinary experts.",
         nextAction: 'transfer'
@@ -278,7 +290,8 @@ If it's about purchasing, redirect to product services.`;
       .trim();
   }
   
-  async transcribeAudio(audioUrl: string): Promise<string> {
+  async transcribeAudio(audioUrl: string, language?: string): Promise<string> {
+    const startTime = Date.now();
     try {
       // Check if we have a valid API key
       if (!config.openai.apiKey || config.openai.apiKey === 'test_openai_key') {
@@ -286,28 +299,50 @@ If it's about purchasing, redirect to product services.`;
         return this.getMockTranscription();
       }
 
-      // Download the audio file
-      const response = await fetch(audioUrl);
+      // Download the audio file with timeout for speed
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+      const response = await fetch(audioUrl, {
+        signal: controller.signal,
+        // Add headers to potentially speed up download
+        headers: {
+          'Accept': 'audio/*'
+        }
+      });
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
         throw new Error(`Failed to download audio: ${response.statusText}`);
       }
+
+      const downloadTime = Date.now() - startTime;
+      logger.info(`⚡ Audio downloaded in ${downloadTime}ms`);
 
       const audioBuffer = await response.arrayBuffer();
       const audioBlob = new Blob([audioBuffer], { type: 'audio/wav' });
       const audioFile = new File([audioBlob], 'recording.wav', { type: 'audio/wav' });
 
-      // Transcribe using OpenAI Whisper
+      const transcribeStart = Date.now();
+
+      // Transcribe using OpenAI Whisper with optimizations
       const transcription = await this.openai.audio.transcriptions.create({
         file: audioFile,
         model: 'whisper-1',
-        language: 'en' // Assuming English, can be made configurable
+        ...(language && { language }), // Include language only if specified
+        temperature: 0.0 // Lower temperature for faster, more deterministic results
       });
 
-      logger.info(`Audio transcribed successfully: "${transcription.text}"`);
-      return transcription.text || '';
+      const transcribeTime = Date.now() - transcribeStart;
+      const totalTime = Date.now() - startTime;
+      const transcribedText = transcription.text || '';
+      logger.info(`⚡ Audio transcribed in ${transcribeTime}ms (total: ${totalTime}ms): "${transcribedText}"`);
+
+      return transcribedText;
 
     } catch (error) {
-      logger.error('Error transcribing audio:', error);
+      const totalTime = Date.now() - startTime;
+      logger.error(`Error transcribing audio after ${totalTime}ms:`, error);
       // Fallback to mock transcription
       return this.getMockTranscription();
     }

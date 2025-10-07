@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import axios from 'axios';
 import FormData from 'form-data';
+import { execSync } from 'child_process';
 import config from '../config';
 import logger from '../utils/logger';
 
@@ -29,7 +30,8 @@ class TTSService {
   private dsnPassword: string;
   private authToken: string | null = null;
   private tokenExpiry: Date | null = null;
-  
+  private ffmpegAvailable: boolean = false;
+
   // Voice configurations for each language using DSN service
   private voiceConfigs: Record<string, TTSVoiceConfig> = {
     en: {
@@ -58,9 +60,23 @@ class TTSService {
     this.dsnUsername = config.dsn.username;
     this.dsnPassword = config.dsn.password;
     this.ensureAudioDirectory();
-    // Clear cache to force regeneration with new URL format
-    this.clearCache();
+    this.checkFfmpeg();
+    // Don't clear cache on startup - preserve existing audio files for faster responses
     logger.info(`TTS Service initialized with DSN API: ${this.dsnBaseUrl}`);
+  }
+
+  /**
+   * Check if ffmpeg is available for audio compression
+   */
+  private checkFfmpeg(): void {
+    try {
+      execSync('ffmpeg -version', { stdio: 'ignore' });
+      this.ffmpegAvailable = true;
+      logger.info('ffmpeg detected - audio compression enabled');
+    } catch (error) {
+      this.ffmpegAvailable = false;
+      logger.warn('ffmpeg not available - audio compression disabled');
+    }
   }
 
   private ensureAudioDirectory(): void {
@@ -76,14 +92,36 @@ class TTSService {
 
   /**
    * Generate speech from text using DSN TTS API
+   * Uses persistent file-based caching to avoid regenerating audio
    */
   async generateSpeech(text: string, options: TTSOptions): Promise<string> {
     const cacheKey = this.generateCacheKey(text, options);
-    
-    // Check cache first
+
+    // Check in-memory cache first (fastest)
     if (this.audioCache.has(cacheKey)) {
-      logger.debug(`Using cached audio for: ${text.substring(0, 50)}...`);
+      logger.debug(`Using in-memory cached audio for: ${text.substring(0, 50)}...`);
       return this.audioCache.get(cacheKey)!;
+    }
+
+    // Check file-based cache (persistent across restarts)
+    // Look for compressed file first, then fallback to WAV
+    const compressedFilename = `${cacheKey}_compressed.mp3`;
+    const compressedFilepath = path.join(this.audioDir, compressedFilename);
+    const wavFilename = `${cacheKey}.wav`;
+    const wavFilepath = path.join(this.audioDir, wavFilename);
+
+    if (fs.existsSync(compressedFilepath)) {
+      const publicUrl = `${config.webhook.baseUrl}/audio/${compressedFilename}`;
+      logger.debug(`Using cached compressed audio file for: ${text.substring(0, 50)}...`);
+      this.audioCache.set(cacheKey, publicUrl);
+      return publicUrl;
+    }
+
+    if (fs.existsSync(wavFilepath)) {
+      const publicUrl = `${config.webhook.baseUrl}/audio/${wavFilename}`;
+      logger.debug(`Using cached WAV audio file for: ${text.substring(0, 50)}...`);
+      this.audioCache.set(cacheKey, publicUrl);
+      return publicUrl;
     }
 
     try {
@@ -91,13 +129,13 @@ class TTSService {
       if (!voiceConfig) {
         throw new Error(`No voice configuration found for language: ${options.language}`);
       }
-      
+
       const audioUrl = await this.generateDSNSpeech(text, voiceConfig, options);
 
-      // Cache the result
+      // Cache the result in memory
       this.audioCache.set(cacheKey, audioUrl);
       logger.info(`Generated DSN TTS audio for ${options.language}: ${text.substring(0, 50)}...`);
-      
+
       return audioUrl;
     } catch (error) {
       logger.error('Error generating DSN speech:', error);
@@ -140,26 +178,45 @@ class TTSService {
         responseType: 'arraybuffer' // Expect MP3 binary data
       });
 
-      // Save the WAV file and always return data URL for reliability
+      // Save and compress the audio file
       const buffer = Buffer.from(response.data);
       const filename = `${this.generateCacheKey(text, options)}.wav`;
       const filepath = path.join(this.audioDir, filename);
-      
+
       // Save to file system and return public URL
       try {
         fs.writeFileSync(filepath, buffer);
-        logger.info(`Saved DSN TTS audio: ${filename} (${buffer.length} bytes)`);
-        
-        // For Africa's Talking, monitor file sizes for playback optimization
-        if (buffer.length > 50000) { // 50KB threshold for optimal playback
-          logger.warn(`Audio file ${filename} is large (${buffer.length} bytes), may cause playback issues`);
-        } else {
-          logger.info(`Audio file ${filename} is optimal size (${buffer.length} bytes)`);
+        const originalSize = buffer.length;
+        logger.info(`Saved DSN TTS audio: ${filename} (${originalSize} bytes)`);
+
+        // Compress audio if ffmpeg is available
+        let finalFilepath = filepath;
+        let finalSize = originalSize;
+
+        if (this.ffmpegAvailable) {
+          try {
+            const compressedFilepath = await this.compressAudio(filepath);
+            if (compressedFilepath) {
+              finalFilepath = compressedFilepath;
+              finalSize = fs.statSync(compressedFilepath).size;
+              const reduction = ((1 - finalSize / originalSize) * 100).toFixed(1);
+              logger.info(`Compressed ${filename}: ${originalSize} → ${finalSize} bytes (${reduction}% reduction)`);
+            }
+          } catch (compressError) {
+            logger.warn(`Audio compression failed for ${filename}, using original:`, compressError);
+          }
         }
-        
+
+        // Monitor file sizes for playback optimization
+        if (finalSize > 50000) {
+          logger.warn(`Audio file ${path.basename(finalFilepath)} is large (${finalSize} bytes), may cause playback issues`);
+        } else {
+          logger.info(`Audio file ${path.basename(finalFilepath)} is optimal size (${finalSize} bytes)`);
+        }
+
         // Return HTTPS URL to the saved audio file
-        const publicUrl = `${config.webhook.baseUrl}/audio/${filename}`;
-        logger.info(`Generated HTTPS URL for TTS audio: ${publicUrl} (${buffer.length} bytes)`);
+        const publicUrl = `${config.webhook.baseUrl}/audio/${path.basename(finalFilepath)}`;
+        logger.info(`Generated HTTPS URL for TTS audio: ${publicUrl} (${finalSize} bytes)`);
         return publicUrl;
       } catch (fsError) {
         logger.warn('Could not save audio file to disk, falling back to data URL');
@@ -172,6 +229,39 @@ class TTSService {
     } catch (error: any) {
       logger.error('DSN TTS API error:', error);
       throw new Error(`DSN TTS failed: ${error.response?.data || error.message}`);
+    }
+  }
+
+  /**
+   * Compress audio file using ffmpeg to reduce file size
+   * Converts to MP3 with optimized settings for voice
+   */
+  private async compressAudio(inputPath: string): Promise<string | null> {
+    try {
+      const outputPath = inputPath.replace('.wav', '_compressed.mp3');
+
+      // Use ffmpeg to compress:
+      // -i: input file
+      // -codec:a libmp3lame: use MP3 codec
+      // -b:a 32k: 32kbps bitrate (good for voice, very small file)
+      // -ar 16000: 16kHz sample rate (sufficient for voice)
+      // -ac 1: mono audio (smaller than stereo)
+      // -y: overwrite output file
+      execSync(
+        `ffmpeg -i "${inputPath}" -codec:a libmp3lame -b:a 32k -ar 16000 -ac 1 -y "${outputPath}"`,
+        { stdio: 'ignore' }
+      );
+
+      // Delete original uncompressed file
+      if (fs.existsSync(outputPath)) {
+        fs.unlinkSync(inputPath);
+        return outputPath;
+      }
+
+      return null;
+    } catch (error) {
+      logger.error('Error compressing audio:', error);
+      return null;
     }
   }
 

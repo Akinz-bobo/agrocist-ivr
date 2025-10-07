@@ -7,8 +7,8 @@ import logger from '../utils/logger';
 import config from '../config';
 
 class VoiceController {
-  
-  async handleIncomingCall(req: Request, res: Response): Promise<void> {
+
+  handleIncomingCall = async (req: Request, res: Response): Promise<void> => {
     try {
       // Africa's Talking sends form data - extract from req.body
       const webhookData = req.body as any;
@@ -67,8 +67,9 @@ class VoiceController {
       
       // Generate welcome response
       const welcomeXML = await africasTalkingService.generateWelcomeResponse();
-      
-      logger.info("🎤 SENDING IVR XML RESPONSE:", welcomeXML);
+
+      logger.info("🎤 SENDING IVR XML RESPONSE:");
+      logger.info(welcomeXML);
       res.set('Content-Type', 'application/xml');
       res.send(welcomeXML);
       
@@ -79,7 +80,7 @@ class VoiceController {
     }
   }
   
-  async handleLanguageSelection(req: Request, res: Response): Promise<void> {
+  handleLanguageSelection = async (req: Request, res: Response): Promise<void> => {
     try {
       const webhookData = req.body as AfricasTalkingWebhook;
       const { sessionId, isActive, dtmfDigits, recordingUrl, callRecordingUrl } = webhookData;
@@ -155,13 +156,23 @@ class VoiceController {
         }
       }
       
-      // Store selected language in session if valid choice
+      // Store selected language in session if valid choice - both in context AND at session level
       if (typeof choice === 'number' && [1, 2, 3].includes(choice)) {
+        // Update in both places for maximum persistence
+        const session = sessionManager.getSession(sessionId);
+        if (session) {
+          session.language = selectedLanguage as 'en' | 'yo' | 'ha';
+          sessionManager.saveSession(session);
+        }
         sessionManager.updateSessionContext(sessionId, { language: selectedLanguage });
         sessionManager.updateSessionMenu(sessionId, 'recording');
-        logger.info(`Language ${selectedLanguage} selected for session: ${sessionId}, going directly to recording`);
+        logger.info(`✅ Language ${selectedLanguage} LOCKED for session: ${sessionId}, going directly to recording`);
       }
-      
+
+      // Log the XML response being sent
+      logger.info(`🎤 SENDING LANGUAGE SELECTION RESPONSE:`);
+      logger.info(responseXML);
+
       res.set('Content-Type', 'application/xml');
       res.send(responseXML);
       
@@ -172,53 +183,81 @@ class VoiceController {
     }
   }
   
-  async handleRecording(req: Request, res: Response): Promise<void> {
+  handleRecording = async (req: Request, res: Response): Promise<void> => {
     try {
       const webhookData = req.body as AfricasTalkingWebhook;
       const { sessionId, isActive, recordingUrl, callRecordingUrl, callRecordingDurationInSeconds } = webhookData;
-      
+
       const recording = recordingUrl || callRecordingUrl;
       logger.info(`=== RECORDING WEBHOOK ===`);
       logger.info(`Full webhook data:`, JSON.stringify(webhookData, null, 2));
       logger.info(`Recording received - Session: ${sessionId}, Active: ${isActive}, URL: ${recording}, Duration: ${callRecordingDurationInSeconds}s`);
-      
+
       // If call is not active, just log and return empty response
       if (isActive === "0") {
         if (recording) {
           logger.info(`Session ${sessionId}: Recording completed. URL: ${recording}, Duration: ${callRecordingDurationInSeconds}s`);
           // Store recording URL for later processing
-          sessionManager.updateSessionContext(sessionId, { 
+          sessionManager.updateSessionContext(sessionId, {
             recordingUrl: recording,
-            recordingDuration: callRecordingDurationInSeconds 
+            recordingDuration: callRecordingDurationInSeconds
           });
         }
         res.status(200).send('');
         return;
       }
-      
-      // Store recording URL for immediate processing
-      if (recording) {
-        sessionManager.updateSessionContext(sessionId, { 
-          recordingUrl: recording,
-          recordingDuration: callRecordingDurationInSeconds 
-        });
+
+      // Get session language IMMEDIATELY for appropriate voice
+      const session = sessionManager.getSession(sessionId);
+      const sessionLanguage = (session?.context?.language || session?.language || 'en') as 'en' | 'yo' | 'ha';
+
+      // Check if we have a recording URL
+      if (!recording) {
+        logger.warn(`⚠️ No recording URL received for session: ${sessionId}`);
+        // Return error and ask to try again
+        const errorMessage = this.getNoRecordingMessage(sessionLanguage);
+        const errorXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${await this.generateLanguageSpecificSay(errorMessage, sessionLanguage)}
+  <Redirect>${config.webhook.baseUrl}/voice/language</Redirect>
+</Response>`;
+        res.set('Content-Type', 'application/xml');
+        res.send(errorXML);
+        return;
       }
 
-      // First, acknowledge the recording and let user know we're processing
-      // Get session language for appropriate voice
-      const session = sessionManager.getSession(sessionId);
-      const sessionLanguage = session?.context?.language || 'en';
+      // Store recording URL for immediate processing
+      sessionManager.updateSessionContext(sessionId, {
+        recordingUrl: recording,
+        recordingDuration: callRecordingDurationInSeconds
+      });
+
+      // Start AI processing in the background IMMEDIATELY (don't await)
+      logger.info(`🚀 Starting background AI processing for session: ${sessionId}`);
+      this.processRecordingInBackground(sessionId, recording, sessionLanguage).catch(err => {
+        logger.error(`Background processing failed for session ${sessionId}:`, err);
+        // Mark error in session so handleAIProcessing knows
+        sessionManager.updateSessionContext(sessionId, { processingError: true });
+      });
+
+      // Send immediate processing message while AI works in background
       const processingMessage = this.getProcessingMessage(sessionLanguage);
+      logger.info(`📢 Processing message text: "${processingMessage}"`);
+
+      const audioTag = await this.generateLanguageSpecificSay(processingMessage, sessionLanguage);
+      logger.info(`📢 Processing audio tag: ${audioTag.substring(0, 100)}...`);
+
       const processingXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.generateLanguageSpecificSay(processingMessage, sessionLanguage)}
+  ${audioTag}
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
-      
-      logger.info(`🎤 SENDING PROCESSING MESSAGE:`, processingXML);
+
+      logger.info(`🎤 SENDING PROCESSING MESSAGE:`);
+      logger.info(processingXML);
       res.set('Content-Type', 'application/xml');
       res.send(processingXML);
-      
+
     } catch (error) {
       logger.error('💥 ERROR handling recording:', error);
       res.set('Content-Type', 'application/xml');
@@ -226,7 +265,64 @@ class VoiceController {
     }
   }
 
-  async handlePostAI(req: Request, res: Response): Promise<void> {
+  /**
+   * Process recording in background for maximum speed
+   * Starts transcription and AI processing immediately without blocking the response
+   */
+  private async processRecordingInBackground(sessionId: string, recordingUrl: string, language: 'en' | 'yo' | 'ha'): Promise<void> {
+    try {
+      const startTime = Date.now();
+
+      // Start transcription immediately
+      logger.info(`⚡ Starting transcription for session ${sessionId}`);
+      const farmerText = await aiService.transcribeAudio(recordingUrl);
+      const transcriptionTime = Date.now() - startTime;
+      logger.info(`⚡ Transcription completed in ${transcriptionTime}ms: "${farmerText}"`);
+
+      // Store transcription
+      sessionManager.updateSessionContext(sessionId, { transcription: farmerText });
+
+      // Process with AI immediately (in parallel if possible)
+      logger.info(`⚡ Starting AI processing for session ${sessionId}`);
+      const aiStartTime = Date.now();
+      const aiResponse = await aiService.processVeterinaryQuery(farmerText, {
+        menu: 'veterinary_ai',
+        farmerId: sessionId,
+        language: language
+      });
+      const aiTime = Date.now() - aiStartTime;
+      logger.info(`⚡ AI processing completed in ${aiTime}ms`);
+
+      // Clean the AI response
+      const cleanedResponse = this.cleanAIResponse(aiResponse.response);
+
+      // Pre-generate TTS audio for the response (parallel with storage)
+      logger.info(`⚡ Starting TTS generation for session ${sessionId}`);
+      const ttsStartTime = Date.now();
+      const ttsPromise = africasTalkingService.generateTTSAudio(cleanedResponse, language);
+
+      // Store AI interaction while TTS generates
+      sessionManager.addAIInteraction(sessionId, farmerText, cleanedResponse, 0.9, 'veterinary');
+      sessionManager.updateSessionContext(sessionId, {
+        aiResponse: cleanedResponse,
+        aiReady: true
+      });
+
+      // Wait for TTS to complete
+      await ttsPromise;
+      const ttsTime = Date.now() - ttsStartTime;
+      const totalTime = Date.now() - startTime;
+
+      logger.info(`⚡ Background processing completed in ${totalTime}ms (Transcription: ${transcriptionTime}ms, AI: ${aiTime}ms, TTS: ${ttsTime}ms)`);
+
+    } catch (error) {
+      logger.error(`Error in background processing for session ${sessionId}:`, error);
+      // Store error state so handleAIProcessing can handle it
+      sessionManager.updateSessionContext(sessionId, { processingError: true });
+    }
+  }
+
+  handlePostAI = async (req: Request, res: Response): Promise<void> => {
     try {
       const webhookData = req.body as AfricasTalkingWebhook;
       const { sessionId, isActive, dtmfDigits } = webhookData;
@@ -290,56 +386,82 @@ class VoiceController {
     }
   }
   
-  async handleAIProcessing(req: Request, res: Response): Promise<void> {
+  handleAIProcessing = async (req: Request, res: Response): Promise<void> => {
     try {
       const sessionId = req.query.session as string;
-      logger.info(`🤖 PROCESSING AI REQUEST for session: ${sessionId}`);
-      
-      // Get session data to retrieve recording URL
+      const webhookData = req.body as AfricasTalkingWebhook;
+      const { isActive } = webhookData;
+
+      logger.info(`🤖 CHECKING AI RESULTS for session: ${sessionId}, isActive: ${isActive}`);
+
+      // If call is not active, just return empty response
+      if (isActive === "0") {
+        logger.info(`❌ Call ended for session: ${sessionId}, returning empty response`);
+        res.status(200).send('');
+        return;
+      }
+
+      // Get session data
       const session = sessionManager.getSession(sessionId);
-      if (!session || !session.context.recordingUrl) {
-        logger.error(`No recording URL found for session: ${sessionId}`);
+      if (!session) {
+        logger.error(`No session found: ${sessionId}`);
         res.set('Content-Type', 'application/xml');
         res.send(await africasTalkingService.generateErrorResponse());
         return;
       }
 
-      // Transcribe the actual farmer's recording
-      const farmerText = await aiService.transcribeAudio(session.context.recordingUrl);
-      
-      logger.info(`🎤 Transcribed farmer input: "${farmerText}"`);
-      
-      // Process with AI service using actual farmer concerns and selected language
-      const language = session.context.language || 'en';
-      const aiResponse = await aiService.processVeterinaryQuery(farmerText, {
-        menu: 'veterinary_ai',
-        farmerId: sessionId,
-        language: language
-      });
-      
-      logger.info(`🤖 AI Response: "${aiResponse.response}"`);
+      const language = (session.context.language || session.language || 'en') as 'en' | 'yo' | 'ha';
 
-      // Store the AI interaction in session
-      sessionManager.addAIInteraction(sessionId, farmerText, aiResponse.response, 0.9, 'veterinary');
-      
-      // Clean up AI response - remove markdown and format for audio
-      const cleanedResponse = this.cleanAIResponse(aiResponse.response);
-      
-      // Generate response with AI answer and redirect to post-AI menu
-      const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
+      // Check if processing encountered an error
+      if (session.context.processingError) {
+        logger.error(`Processing error detected for session: ${sessionId}`);
+        res.set('Content-Type', 'application/xml');
+        res.send(await africasTalkingService.generateErrorResponse(language));
+        return;
+      }
+
+      // Check if AI response is ready (from background processing)
+      if (session.context.aiReady && session.context.aiResponse) {
+        logger.info(`✅ AI response already ready for session ${sessionId}`);
+        const cleanedResponse = session.context.aiResponse;
+
+        // Generate the language-specific audio/say tag
+        logger.info(`🔊 Generating audio tag for language: ${language}, text: ${cleanedResponse.substring(0, 50)}...`);
+        const audioTag = await this.generateLanguageSpecificSay(cleanedResponse, language);
+        logger.info(`🔊 Generated audio tag: ${audioTag.substring(0, 100)}...`);
+
+        // Generate response with AI answer and redirect to post-AI menu
+        const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.generateLanguageSpecificSay(cleanedResponse, language)}
+  ${audioTag}
   <Redirect>${config.webhook.baseUrl}/voice/post-ai?session=${sessionId}&language=${language}</Redirect>
 </Response>`;
-      
-      logger.info(`🎤 SENDING AI RESPONSE XML:`, responseXML);
+
+        logger.info(`🎤 SENDING CACHED AI RESPONSE XML:`);
+        logger.info(responseXML);
+        res.set('Content-Type', 'application/xml');
+        res.send(responseXML);
+        return;
+      }
+
+      // If not ready yet, wait a bit and redirect back (polling approach)
+      logger.info(`⏳ AI still processing for session ${sessionId}, redirecting...`);
+      const waitMessage = this.getWaitMessage(language);
+      const redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${await this.generateLanguageSpecificSay(waitMessage, language)}
+  <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
+</Response>`;
+
       res.set('Content-Type', 'application/xml');
-      res.send(responseXML);
-      
+      res.send(redirectXML);
+
     } catch (error) {
       logger.error('💥 ERROR processing AI request:', error);
+      const session = sessionManager.getSession(req.query.session as string);
+      const lang = (session?.context?.language || session?.language || 'en') as 'en' | 'yo' | 'ha';
       res.set('Content-Type', 'application/xml');
-      res.send(await africasTalkingService.generateErrorResponse());
+      res.send(await africasTalkingService.generateErrorResponse(lang));
     }
   }
   
@@ -381,6 +503,30 @@ class VoiceController {
       en: "Thank you for your question. Agrocist is analyzing your concern. Please wait a moment for your response.",
       yo: "A dúpẹ́ fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìṣòro yín. Ẹ dúró díẹ̀ fún ìdáhùn yín.",
       ha: "Na gode da tambayar ku. Agrocist yana nazarin damuwar ku. Don Allah ku jira na ɗan lokaci don amsar ku."
+    };
+    return messages[language] || messages.en;
+  }
+
+  /**
+   * Get wait message in appropriate language (for polling)
+   */
+  private getWaitMessage(language: 'en' | 'yo' | 'ha'): string {
+    const messages = {
+      en: "Just a moment, processing your request.",
+      yo: "Ẹ dúró díẹ̀, a ń ṣe ìbéèrè yín.",
+      ha: "Don Allah ku ɗan jira, muna aiwatar da buƙatarku."
+    };
+    return messages[language] || messages.en;
+  }
+
+  /**
+   * Get no-recording error message in appropriate language
+   */
+  private getNoRecordingMessage(language: 'en' | 'yo' | 'ha'): string {
+    const messages = {
+      en: "I didn't hear your recording. Please try again and speak after the beep.",
+      yo: "Mi ò gbọ́ ìgbóhùn yín. Ẹ jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan si, kí ẹ sì sọ̀rọ̀ lẹ́yìn ìró àlámọ́.",
+      ha: "Ban ji rikodin ku ba. Don Allah ku sake gwadawa kuma ku yi magana bayan sautin."
     };
     return messages[language] || messages.en;
   }

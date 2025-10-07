@@ -129,20 +129,34 @@ class AfricasTalkingService {
     };
 
     const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
-    const audioUrl = await this.generateTTSAudio(prompt, language as 'en' | 'yo' | 'ha');
-    const playTag = audioUrl ? `<Play url="${audioUrl}"/>` : `<Say voice="woman">${prompt}</Say>`;
 
-    return `<?xml version="1.0" encoding="UTF-8"?>
+    // According to Africa's Talking docs, prompt should be INSIDE the Record tag
+    // This ensures the beep plays and recording starts properly
+    const audioUrl = await this.generateTTSAudio(prompt, language as 'en' | 'yo' | 'ha');
+
+    if (audioUrl) {
+      // If we have TTS audio, use Play inside Record
+      return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${playTag}
-  ${await this.getRecordingXML(language as 'en' | 'yo' | 'ha')}
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+    <Play url="${audioUrl}"/>
+  </Record>
 </Response>`;
+    } else {
+      // Fallback to Say inside Record
+      return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+    <Say voice="woman">${prompt}</Say>
+  </Record>
+</Response>`;
+    }
   }
 
   async generatePostAIMenuResponse(language: string): Promise<string> {
     const prompts = {
       en: "Would you like to speak with a human veterinary expert? Press 1 to speak with an expert, or press 0 to end the call.",
-      yo: "Ṣé ẹ fẹ́ bá amọ̀ràn oníwòsàn ẹranko sọ̀rọ̀? Ẹ tẹ́ ọ̀kan láti bá amọ̀ràn sọ̀rọ̀, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
+      yo: "Ṣé ẹ fẹ́ bá dokita oníwòsàn ẹranko sọ̀rọ̀? Ẹ tẹ́ ọ̀kan láti bá amọ̀ràn sọ̀rọ̀, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
       ha: "Kana son yin magana da ƙwararren likitan dabbobi? Danna ɗaya don yin magana da ƙwararre, ko danna sifili don kammala kiran.",
     };
 
@@ -166,85 +180,52 @@ class AfricasTalkingService {
   private async getMainMenuXML(): Promise<string> {
     // Generate multi-language welcome message with appropriate voices
     const welcomeXML = await this.generateMultiLanguageWelcome();
-    
-    return `<GetDigits timeout="8" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language">
-    ${welcomeXML}
+
+    // Put audio INSIDE GetDigits with proper formatting
+    return `<GetDigits timeout="10" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language">
+${welcomeXML}
   </GetDigits>`;
   }
 
   /**
    * Generate multi-language welcome message with appropriate voices for each language
+   * SIMPLIFIED: Use single Play tag to avoid Africa's Talking limitations
    */
   private async generateMultiLanguageWelcome(): Promise<string> {
     try {
-      // Base welcome message - shorter for smaller audio files
-      const baseWelcome =
-        "Welcome to Agrocist, your trusted livestock farming partner.";
-      const baseAudioUrl = await this.generateTTSAudio(baseWelcome, 'en');
-      
-      // English option
-      const englishOption = "Press 1 for English.";
-      const englishAudioUrl = await this.generateTTSAudio(englishOption, 'en');
-      
-      // Yoruba option - shorter
-      const yorubaOption = "Tẹ ẹ̀ẹ́jì fún Èdè Yorùbá.";
-      const yorubaAudioUrl = await this.generateTTSAudio(yorubaOption, 'yo');
-      
-      // Hausa option - shorter  
-      const hausaOption = "Danna uku don Hausa.";
-      const hausaAudioUrl = await this.generateTTSAudio(hausaOption, 'ha');
+      // Use a single combined message for now to ensure compatibility
+      const welcomeText = "Welcome to Agrocist, your trusted livestock farming partner. Press 1 for English, 2 for Yoruba, or 3 for Hausa.";
 
-      // To listen to options again
-      // Note: This may increase audio file size, consider removing if needed
-      const repeatOption = "Press 4 to repeat this menu.";
-      const repeatAudioUrl = await this.generateTTSAudio(repeatOption, 'en');
-      
-      // Common options - shorter
-      const commonOptions = "Press 0 to end call.";
-      const commonAudioUrl = await this.generateTTSAudio(commonOptions, 'en');
-      
-      // Build XML with multiple play tags for different voices
-      let xml = '';
-      
-      // Base welcome
-      xml += baseAudioUrl ? `<Play url="${baseAudioUrl}"/>` : `<Say voice="woman">${baseWelcome}</Say>`;
-      
-      // English option
-      xml += baseAudioUrl ? `<Play url="${englishAudioUrl}"/>` : `<Say voice="woman">${englishOption}</Say>`;
-      
-      // Yoruba option with Yoruba voice
-      xml += yorubaAudioUrl ? `<Play url="${yorubaAudioUrl}"/>` : `<Say voice="woman">${yorubaOption}</Say>`;
-      
-      // Hausa option with Hausa voice
-      xml += hausaAudioUrl ? `<Play url="${hausaAudioUrl}"/>` : `<Say voice="woman">${hausaOption}</Say>`;
-      
-      // Repeat option
-      xml += repeatAudioUrl ? `<Play url="${repeatAudioUrl}"/>` : `<Say voice="woman">${repeatOption}</Say>`;
-      // Common options in English
-      xml += commonAudioUrl ? `<Play url="${commonAudioUrl}"/>` : `<Say voice="woman">${commonOptions}</Say>`;
-      
-      return xml;
+      const audioUrl = await this.generateTTSAudio(welcomeText, 'en');
+
+      if (audioUrl) {
+        logger.info(`📢 Welcome audio URL: ${audioUrl}`);
+        return `<Play url="${audioUrl}"/>`;
+      } else {
+        logger.warn('⚠️ No audio URL for welcome, using Say tag');
+        return `<Say>${welcomeText}</Say>`;
+      }
     } catch (error) {
       logger.error('Error generating multi-language welcome:', error);
       // Fallback to simple English welcome
-      const fallbackText = "Welcome to Agrocist, your trusted livestock farming partner. Press 1 for English, 2 for Yoruba, 3 for Hausa. Press 4 to repeat this menu. Press 0 to end the call.";
-      return `<Say voice="woman">${fallbackText}</Say>`;
+      const fallbackText = "Welcome to Agrocist. Press 1 for English, 2 for Yoruba, or 3 for Hausa.";
+      return `<Say>${fallbackText}</Say>`;
     }
   }
 
 
-  private async getRecordingXML(language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
-    const recordPrompt = this.getLocalizedText('record_prompt', language);
-    const audioUrl = await this.generateTTSAudio(recordPrompt, language);
-    const playTag = audioUrl ? `<Play url="${audioUrl}"/>` : `<Say voice="woman">${recordPrompt}</Say>`;
-    
-    return `<Record timeout="10" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
-    ${playTag}
-  </Record>`;
+  private async getRecordingXML(_language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
+    // Note: Prompt should be played BEFORE calling this method (not inside Record tag)
+    // Using maxLength instead of timeout (Africa's Talking requirement)
+    // maxLength: 30 seconds max recording duration
+    // finishOnKey: # to end recording early
+    // trimSilence: removes silence at end
+    // playBeep: plays beep before recording starts
+    return `<Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording"/>`;
   }
 
   private getImmediateRecordingXML(): string {
-    return `<Record timeout="10" trimSilence="true" playBeep="false" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+    return `<Record maxLength="30" trimSilence="true" playBeep="false" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
     <Say voice="woman">Please describe your livestock concern or question. Be as specific as possible about the animal type, symptoms, or issue you're experiencing.</Say>
   </Record>`;
   }
@@ -336,24 +317,15 @@ class AfricasTalkingService {
 
   /**
    * Get localized text for common phrases
+   * Used for: goodbye, error, record_prompt, transfer messages
+   * Note: Welcome message is handled separately in generateMultiLanguageWelcome()
    */
   private getLocalizedText(key: string, language: 'en' | 'yo' | 'ha'): string {
     const texts: Record<string, Record<string, string>> = {
-      welcome: {
-        en: this.ttsAvailable 
-          ? "Welcome to Agrocist, your trusted livestock farming partner. Press 1 for English. Fún Èdè Yorùbá, ẹ tẹ ẹ̀ẹ̀jì. Don Hausa, danna uku. Press 4 to repeat this menu. Press 0 to end the call."
-          : "Welcome to Agrocist, your trusted livestock farming partner. This service is currently available in English only. Press 1 to continue in English, or press 0 to end the call.",
-        yo: this.ttsAvailable 
-          ? "Ẹ kú àbọ̀ sí Agrocist, alábáṣe àgbẹ̀ ẹran tí ẹ lè gbẹ́kẹ̀lé. Fún Èdè Gẹ̀ẹ́sì, ẹ tẹ ọ̀kan. Fún Èdè Yorùbá, ẹ tẹ ẹ̀ẹ̀jì. Fún Èdè Hausa, ẹ tẹ ẹ̀ta. Ẹ tẹ ẹ̀rin láti tún gbọ́ àtòjọ yìí. Ẹ tẹ ọ̀fà láti parí ìpè náà."
-          : "Welcome to Agrocist, your trusted livestock farming partner. This service is currently available in English only. Press 1 to continue in English, or press 0 to end the call.",
-        ha: this.ttsAvailable 
-          ? "Barka da zuwa Agrocist, abokin noman dabbobi da kuke dogara gare shi. Danna ɗaya don Turanci. Don Yoruba, danna biyu. Don Hausa, danna uku. Danna huɗu don maimaita wannan menu. Danna sifili don kammala kiran."
-          : "Welcome to Agrocist, your trusted livestock farming partner. This service is currently available in English only. Press 1 to continue in English, or press 0 to end the call."
-      },
       goodbye: {
-        en: "Thank you for calling Agrocist. Have a great day!",
-        yo: "A dúpẹ́ fún ìpè sí Agrocist. Ẹ ní ọjọ́ tí ó dára!",
-        ha: "Na gode da kiran Agrocist. Ku yi kyakkyawan rana!"
+        en: "Thank you for using Agrocist. Have a great day!",
+        yo: "A dúpẹ́ fún lilo Agrocist. Ẹ ní ọjọ́ tí ó dára!",
+        ha: "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!"
       },
       error: {
         en: "I'm sorry, I didn't understand that. Let me take you back to the main menu.",
@@ -364,11 +336,6 @@ class AfricasTalkingService {
         en: "Please describe your livestock concern. Speak clearly after the beep and press hash when done.",
         yo: "Ẹ sọ ìṣòro ẹranko yín kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
         ha: "Don Allah ku bayyana matsalar dabbobinku. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama."
-      },
-      agent_option: {
-        en: "Would you like to speak with a human veterinary expert? Press 1 to speak with an expert, or press 0 to end the call.",
-        yo: "Ṣé ẹ fẹ́ bá amọ̀ràn oníwòsàn ẹranko sọ̀rọ̀? Ẹ tẹ́ ọ̀kan láti bá amọ̀ràn sọ̀rọ̀, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
-        ha: "Kana son yin magana da ƙwararren likitan dabbobi? Danna ɗaya don yin magana da ƙwararre, ko danna sifili don kammala kiran."
       },
       transfer: {
         en: "Please hold while I connect you to one of our veterinary experts.",

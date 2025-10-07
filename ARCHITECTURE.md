@@ -56,7 +56,7 @@
                         │                                 ▼                                 │
                         │                    ┌─────────────────┐                           │
                         │                    │  Service Mesh   │                           │
-                        │                    │   (Redis Pub)   │                           │
+                        │                    │  (In-Memory)    │                           │
                         │                    └─────────────────┘                           │
                         │                                 │                                 │
                         │          ┌─────────────────────┼─────────────────────┐          │
@@ -80,8 +80,9 @@
 #### Core Technologies
 - **Runtime:** Node.js 20+ with TypeScript
 - **Framework:** Express.js with Helmet for security
-- **Database:** MongoDB with Redis for caching
-- **Message Queue:** Redis Pub/Sub + Bull Queue
+- **Database:** MongoDB
+- **Caching:** In-memory with file-based persistence
+- **Message Queue:** (Future: Redis Pub/Sub + Bull Queue)
 - **Containerization:** Docker + Kubernetes
 - **Load Balancer:** NGINX with SSL termination
 
@@ -264,8 +265,8 @@
 #### Infrastructure Scaling
 - **Auto-scaling:** Based on call volume
 - **Load Balancing:** Round-robin with health checks
-- **Caching:** Redis for frequent queries
-- **CDN:** Audio file delivery optimization
+- **Caching:** In-memory and file-based for audio files
+- **Audio Optimization:** Compressed MP3 files (~20-40KB) with persistent caching
 
 ### Security & Compliance
 
