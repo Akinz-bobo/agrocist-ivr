@@ -178,7 +178,8 @@ class AfricasTalkingService {
   private async generateMultiLanguageWelcome(): Promise<string> {
     try {
       // Base welcome message - shorter for smaller audio files
-      const baseWelcome = "Welcome to Agrocist.";
+      const baseWelcome =
+        "Welcome to Agrocist, your trusted livestock farming partner.";
       const baseAudioUrl = await this.generateTTSAudio(baseWelcome, 'en');
       
       // English option
