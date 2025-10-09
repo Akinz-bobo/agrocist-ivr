@@ -16,6 +16,8 @@ router.post('/language', voiceController.handleLanguageSelection);
 // Recording endpoint for voice input (AI processing)
 router.post('/recording', voiceController.handleRecording);
 
+// AI processing endpoint (for polling AI results)
+router.post('/process-ai', voiceController.handleAIProcessing);
 
 // Post-AI menu endpoint for human agent option
 router.post('/post-ai', voiceController.handlePostAI);
