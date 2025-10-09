@@ -21,9 +21,11 @@ class AfricasTalkingService {
     let response = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>`;
 
-    // Generate TTS audio for the main text
+    // Generate TTS audio for the main text using proper voice selection
     const audioUrl = await this.generateTTSAudio(text, language);
-    response += audioUrl ? `  <Play url="${audioUrl}"/>` : `  <Say voice="woman">${text}</Say>`;
+    response += audioUrl ? 
+      `  <Play url="${audioUrl}"/>` : 
+      `  <Say>${this.escapeXML(text)}</Say>`;
 
     switch (nextAction) {
       case "menu":
@@ -39,8 +41,9 @@ class AfricasTalkingService {
         const endText = this.getLocalizedText('goodbye', language);
         const endAudioUrl = await this.generateTTSAudio(endText, language);
         response += endAudioUrl ? 
-          `  <Play url="${endAudioUrl}"/>\n  <Hangup/>` : 
-          `  <Say voice="woman">${endText}</Say>\n  <Hangup/>`;
+          `  <Play url="${endAudioUrl}"/>` : 
+          `  <Say voice="${this.getVoiceForLanguage(language)}" playBeep="false">${this.escapeXML(endText)}</Say>`;
+        // Just end with closing tag - AT will end call automatically
         break;
       default:
         response += await this.getMainMenuXML();
@@ -79,12 +82,15 @@ class AfricasTalkingService {
 
   async generateRecordingResponse(prompt: string, language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
     const audioUrl = await this.generateTTSAudio(prompt, language);
-    const playTag = audioUrl ? `<Play url="${audioUrl}"/>` : `<Say voice="woman">${prompt}</Say>`;
+    const playTag = audioUrl ? 
+      `<Play url="${audioUrl}"/>` : 
+      `<Say>${this.escapeXML(prompt)}</Say>`;
     
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${playTag}
-  ${await this.getRecordingXML(language)}
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+    ${playTag}
+  </Record>
 </Response>`;
   }
 
@@ -98,12 +104,14 @@ class AfricasTalkingService {
   async generateErrorResponse(language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
     const errorText = this.getLocalizedText('error', language);
     const audioUrl = await this.generateTTSAudio(errorText, language);
-    const playTag = audioUrl ? `<Play url="${audioUrl}"/>` : `<Say voice="woman">${errorText}</Say>`;
+    const playTag = audioUrl ? 
+      `<Play url="${audioUrl}"/>` : 
+      `<Say>${this.escapeXML(errorText)}</Say>`;
     
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${playTag}
-  ${await this.getMainMenuXML()}
+  <Redirect>${config.webhook.baseUrl}/voice</Redirect>
 </Response>`;
   }
 
@@ -129,10 +137,11 @@ class AfricasTalkingService {
     };
 
     const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
+    const langCode = language as 'en' | 'yo' | 'ha';
 
     // According to Africa's Talking docs, prompt should be INSIDE the Record tag
     // This ensures the beep plays and recording starts properly
-    const audioUrl = await this.generateTTSAudio(prompt, language as 'en' | 'yo' | 'ha');
+    const audioUrl = await this.generateTTSAudio(prompt, langCode);
 
     if (audioUrl) {
       // If we have TTS audio, use Play inside Record
@@ -143,11 +152,43 @@ class AfricasTalkingService {
   </Record>
 </Response>`;
     } else {
-      // Fallback to Say inside Record
+      // Fallback to Say inside Record with proper voice
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
-    <Say voice="woman">${prompt}</Say>
+    <Say>${this.escapeXML(prompt)}</Say>
+  </Record>
+</Response>`;
+    }
+  }
+
+  async generateFollowUpRecordingResponse(language: string): Promise<string> {
+    const prompts = {
+      en: "Please ask your next question or describe another livestock concern. Speak clearly after the beep and press hash when done.",
+      yo: "Ẹ béèrè ìbéèrè yín tókàn tàbí ẹ sọ ìṣòro ẹranko mìíràn. Ẹ sọ̀rọ̀ kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
+      ha: "Don Allah ku yi wata tambaya ko ku bayyana wata matsalar dabbobi. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama.",
+    };
+
+    const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
+    const langCode = language as 'en' | 'yo' | 'ha';
+
+    // Generate TTS audio for the follow-up prompt
+    const audioUrl = await this.generateTTSAudio(prompt, langCode);
+
+    if (audioUrl) {
+      // If we have TTS audio, use Play inside Record
+      return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+    <Play url="${audioUrl}"/>
+  </Record>
+</Response>`;
+    } else {
+      // Fallback to Say inside Record with proper voice
+      return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+    <Say>${this.escapeXML(prompt)}</Say>
   </Record>
 </Response>`;
     }
@@ -155,7 +196,7 @@ class AfricasTalkingService {
 
   async generatePostAIMenuResponse(language: string): Promise<string> {
     const prompts = {
-      en: "Would you like to speak with a human veterinary expert? Press 1 to speak with an expert, or press 0 to end the call.",
+      en: "Do you have any other concerns? Press 1 to ask another question, press 2 to speak with a human expert, press 3 to go back to main menu, or press 0 to end the call.",
       yo: "Ṣé ẹ fẹ́ bá dokita oníwòsàn ẹranko sọ̀rọ̀? Ẹ tẹ́ ọ̀kan láti bá amọ̀ràn sọ̀rọ̀, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
       ha: "Kana son yin magana da ƙwararren likitan dabbobi? Danna ɗaya don yin magana da ƙwararre, ko danna sifili don kammala kiran.",
     };
@@ -165,14 +206,17 @@ class AfricasTalkingService {
     
     // Generate TTS audio with appropriate voice for the language
     const audioUrl = await this.generateTTSAudio(prompt, langCode);
-    const playTag = audioUrl ? `<Play url="${audioUrl}"/>` : `<Say voice="woman">${prompt}</Say>`;
+    const playTag = audioUrl ? 
+      `<Play url="${audioUrl}"/>` : 
+      `<Say>${this.escapeXML(prompt)}</Say>`;
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${playTag}
-  <GetDigits timeout="8" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai">
+  <GetDigits timeout="10" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai">
     ${playTag}
   </GetDigits>
+  ${playTag}
+  <Redirect>${config.webhook.baseUrl}/voice/post-ai</Redirect>
 </Response>`;
   }
 
@@ -193,23 +237,23 @@ ${welcomeXML}
    */
   private async generateMultiLanguageWelcome(): Promise<string> {
     try {
-      // Use a single combined message for now to ensure compatibility
+      // Use simple, compatible text - no complex SSML
       const welcomeText = "Welcome to Agrocist, your trusted livestock farming partner. Press 1 for English, 2 for Yoruba, or 3 for Hausa.";
 
       const audioUrl = await this.generateTTSAudio(welcomeText, 'en');
 
       if (audioUrl) {
         logger.info(`📢 Welcome audio URL: ${audioUrl}`);
-        return `<Play url="${audioUrl}"/>`;
+        return `    <Play url="${audioUrl}"/>`;
       } else {
-        logger.warn('⚠️ No audio URL for welcome, using Say tag');
-        return `<Say>${welcomeText}</Say>`;
+        logger.warn('⚠️ No audio URL for welcome, using simple Say tag');
+        return `    <Say>${this.escapeXML(welcomeText)}</Say>`;
       }
     } catch (error) {
       logger.error('Error generating multi-language welcome:', error);
       // Fallback to simple English welcome
       const fallbackText = "Welcome to Agrocist. Press 1 for English, 2 for Yoruba, or 3 for Hausa.";
-      return `<Say>${fallbackText}</Say>`;
+      return `    <Say>${this.escapeXML(fallbackText)}</Say>`;
     }
   }
 
@@ -233,11 +277,12 @@ ${welcomeXML}
   private async getTransferXML(language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
     const transferText = this.getLocalizedText('transfer', language);
     const audioUrl = await this.generateTTSAudio(transferText, language);
-    const playTag = audioUrl ? `<Play url="${audioUrl}"/>` : `<Say voice="woman">${transferText}</Say>`;
+    const playTag = audioUrl ? 
+      `<Play url="${audioUrl}"/>` : 
+      `<Say voice="${this.getVoiceForLanguage(language)}" playBeep="false">${this.escapeXML(transferText)}</Say>`;
     
-    return `<Dial phoneNumbers="${config.agent.phoneNumber}" record="true" sequential="true" callbackUrl="${config.webhook.baseUrl}/voice/transfer">
-    ${playTag}
-  </Dial>`;
+    return `${playTag}
+  <Dial phoneNumbers="${config.agent.phoneNumber}" record="true" sequential="true" callbackUrl="${config.webhook.baseUrl}/voice/transfer"/>`;
   }
 
   async makeCall(phoneNumber: string): Promise<boolean> {
@@ -320,6 +365,26 @@ ${welcomeXML}
    * Used for: goodbye, error, record_prompt, transfer messages
    * Note: Welcome message is handled separately in generateMultiLanguageWelcome()
    */
+  /**
+   * Get voice name for language according to Google TTS supported voices
+   */
+  private getVoiceForLanguage(language: 'en' | 'yo' | 'ha'): string {
+    // Use simple 'woman' voice - more compatible with Africa's Talking
+    return 'woman';
+  }
+
+  /**
+   * Escape XML special characters
+   */
+  private escapeXML(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
   private getLocalizedText(key: string, language: 'en' | 'yo' | 'ha'): string {
     const texts: Record<string, Record<string, string>> = {
       goodbye: {

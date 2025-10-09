@@ -146,7 +146,6 @@ class VoiceController {
             responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${await this.generateLanguageSpecificSay(goodbyeMessage, selectedLanguage as 'en' | 'yo' | 'ha')}
-  <Hangup/>
 </Response>`;
             break;
             
@@ -232,31 +231,94 @@ class VoiceController {
         recordingDuration: callRecordingDurationInSeconds
       });
 
-      // Start AI processing in the background IMMEDIATELY (don't await)
-      logger.info(`🚀 Starting background AI processing for session: ${sessionId}`);
-      this.processRecordingInBackground(sessionId, recording, sessionLanguage).catch(err => {
-        logger.error(`Background processing failed for session ${sessionId}:`, err);
-        // Mark error in session so handleAIProcessing knows
-        sessionManager.updateSessionContext(sessionId, { processingError: true });
-      });
+      // Process recording synchronously - no background processing or redirects
+      logger.info(`🚀 Processing recording synchronously for session: ${sessionId}`);
+      const startTime = Date.now();
 
-      // Send immediate processing message while AI works in background
-      const processingMessage = this.getProcessingMessage(sessionLanguage);
-      logger.info(`📢 Processing message text: "${processingMessage}"`);
+      try {
+        // 1. Transcribe audio
+        logger.info(`⚡ Starting transcription for session ${sessionId}`);
+        const farmerText = await aiService.transcribeAudio(recording);
+        const transcriptionTime = Date.now() - startTime;
+        logger.info(`⚡ Transcription completed in ${transcriptionTime}ms: "${farmerText}"`);
 
-      const audioTag = await this.generateLanguageSpecificSay(processingMessage, sessionLanguage);
-      logger.info(`📢 Processing audio tag: ${audioTag.substring(0, 100)}...`);
+        // 2. Store transcription
+        sessionManager.updateSessionContext(sessionId, { transcription: farmerText });
 
-      const processingXML = `<?xml version="1.0" encoding="UTF-8"?>
+        // 3. Process with AI
+        logger.info(`⚡ Starting AI processing for session ${sessionId}`);
+        const aiStartTime = Date.now();
+        const aiResponse = await aiService.processVeterinaryQuery(farmerText, {
+          menu: 'veterinary_ai',
+          farmerId: sessionId,
+          language: sessionLanguage
+        });
+        const aiTime = Date.now() - aiStartTime;
+        logger.info(`⚡ AI processing completed in ${aiTime}ms`);
+
+        // 4. Clean and truncate response
+        const cleanedResponse = this.cleanAIResponse(aiResponse.response);
+        const truncatedResponse = this.truncateForAudio(cleanedResponse);
+        logger.info(`📝 Truncated AI response from ${cleanedResponse.length} to ${truncatedResponse.length} characters`);
+
+        // 5. Store AI interaction
+        sessionManager.addAIInteraction(sessionId, farmerText, truncatedResponse, 0.9, 'veterinary');
+        sessionManager.updateSessionContext(sessionId, {
+          aiResponse: truncatedResponse,
+          aiReady: true
+        });
+
+        // 6. Generate complete response with processing message + AI answer + post-AI menu
+        const processingMessage = this.getProcessingMessage(sessionLanguage);
+        const processingAudio = await this.generateLanguageSpecificSay(processingMessage, sessionLanguage);
+        const audioTag = await this.generateLanguageSpecificSay(truncatedResponse, sessionLanguage);
+        
+        const postAIPrompt = sessionLanguage === 'en' ? 
+          "Do you have any other concerns? Press 1 to ask another question, press 2 to speak with a human expert, press 3 to go back to main menu, or press 0 to end the call." :
+          sessionLanguage === 'yo' ?
+          "Ṣé ẹ ní ìṣòro mìíràn? Ẹ tẹ́ ọ̀kan láti béèrè ìbéèrè mìíràn, ẹ tẹ́ méjì láti bá amọ̀ràn sọ̀rọ̀, ẹ tẹ́ mẹ́ta láti padà sí àtòjọ àkọ́kọ́, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà." :
+          "Kana da wasu matsaloli? Danna 1 don yin wata tambaya, danna 2 don magana da ƙwararren likita, danna 3 don komawa babban menu, ko danna 0 don kammala kiran.";
+        
+        const postAIAudio = await this.generateLanguageSpecificSay(postAIPrompt, sessionLanguage);
+        const noInputMessage = await this.generateLanguageSpecificSay("We did not receive your selection. Let me repeat the options.", sessionLanguage);
+        
+        const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  ${processingAudio}
   ${audioTag}
-  <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
+  <GetDigits timeout="10" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai?language=${sessionLanguage}">
+    ${postAIAudio}
+  </GetDigits>
+  ${noInputMessage}
+  <Redirect>${config.webhook.baseUrl}/voice/post-ai?language=${sessionLanguage}</Redirect>
 </Response>`;
 
-      logger.info(`🎤 SENDING PROCESSING MESSAGE:`);
-      logger.info(processingXML);
-      res.set('Content-Type', 'application/xml');
-      res.send(processingXML);
+        const totalTime = Date.now() - startTime;
+        logger.info(`⚡ Synchronous processing completed in ${totalTime}ms (Transcription: ${transcriptionTime}ms, AI: ${aiTime}ms)`);
+        logger.info(`🎤 SENDING COMPLETE AI RESPONSE:`);
+        logger.info(responseXML);
+        
+        res.set('Content-Type', 'application/xml');
+        res.send(responseXML);
+
+      } catch (processingError) {
+        logger.error(`Error in synchronous processing for session ${sessionId}:`, processingError);
+        // Send error response if processing fails
+        const errorMessage = sessionLanguage === 'en' ? 
+          "I'm sorry, there was an error processing your request. Please try again." :
+          sessionLanguage === 'yo' ?
+          "Má bínú, àṣìṣe wà nínú ṣíṣe ìbéèrè yín. Ẹ jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan si." :
+          "Yi hakuri, an sami kuskure wajen aiwatar da buƙatarku. Don Allah ku sake gwadawa.";
+        
+        const errorXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${await this.generateLanguageSpecificSay(errorMessage, sessionLanguage)}
+  <Redirect>${config.webhook.baseUrl}/voice/language</Redirect>
+</Response>`;
+        
+        res.set('Content-Type', 'application/xml');
+        res.send(errorXML);
+      }
 
     } catch (error) {
       logger.error('💥 ERROR handling recording:', error);
@@ -265,68 +327,12 @@ class VoiceController {
     }
   }
 
-  /**
-   * Process recording in background for maximum speed
-   * Starts transcription and AI processing immediately without blocking the response
-   */
-  private async processRecordingInBackground(sessionId: string, recordingUrl: string, language: 'en' | 'yo' | 'ha'): Promise<void> {
-    try {
-      const startTime = Date.now();
-
-      // Start transcription immediately
-      logger.info(`⚡ Starting transcription for session ${sessionId}`);
-      const farmerText = await aiService.transcribeAudio(recordingUrl);
-      const transcriptionTime = Date.now() - startTime;
-      logger.info(`⚡ Transcription completed in ${transcriptionTime}ms: "${farmerText}"`);
-
-      // Store transcription
-      sessionManager.updateSessionContext(sessionId, { transcription: farmerText });
-
-      // Process with AI immediately (in parallel if possible)
-      logger.info(`⚡ Starting AI processing for session ${sessionId}`);
-      const aiStartTime = Date.now();
-      const aiResponse = await aiService.processVeterinaryQuery(farmerText, {
-        menu: 'veterinary_ai',
-        farmerId: sessionId,
-        language: language
-      });
-      const aiTime = Date.now() - aiStartTime;
-      logger.info(`⚡ AI processing completed in ${aiTime}ms`);
-
-      // Clean the AI response
-      const cleanedResponse = this.cleanAIResponse(aiResponse.response);
-
-      // Pre-generate TTS audio for the response (parallel with storage)
-      logger.info(`⚡ Starting TTS generation for session ${sessionId}`);
-      const ttsStartTime = Date.now();
-      const ttsPromise = africasTalkingService.generateTTSAudio(cleanedResponse, language);
-
-      // Store AI interaction while TTS generates
-      sessionManager.addAIInteraction(sessionId, farmerText, cleanedResponse, 0.9, 'veterinary');
-      sessionManager.updateSessionContext(sessionId, {
-        aiResponse: cleanedResponse,
-        aiReady: true
-      });
-
-      // Wait for TTS to complete
-      await ttsPromise;
-      const ttsTime = Date.now() - ttsStartTime;
-      const totalTime = Date.now() - startTime;
-
-      logger.info(`⚡ Background processing completed in ${totalTime}ms (Transcription: ${transcriptionTime}ms, AI: ${aiTime}ms, TTS: ${ttsTime}ms)`);
-
-    } catch (error) {
-      logger.error(`Error in background processing for session ${sessionId}:`, error);
-      // Store error state so handleAIProcessing can handle it
-      sessionManager.updateSessionContext(sessionId, { processingError: true });
-    }
-  }
 
   handlePostAI = async (req: Request, res: Response): Promise<void> => {
     try {
       const webhookData = req.body as AfricasTalkingWebhook;
       const { sessionId, isActive, dtmfDigits } = webhookData;
-      const languageParam = req.query.language as string;
+      const languageParam = req.query.language as string || 'en';
       
       logger.info(`=== POST-AI WEBHOOK ===`);
       logger.info(`Post-AI - Session: ${sessionId}, Active: ${isActive}, DTMF: ${dtmfDigits}, Language: ${languageParam}`);
@@ -340,9 +346,7 @@ class VoiceController {
 
       // If no DTMF digits, this is the initial redirect - show the post-AI menu
       if (!dtmfDigits) {
-        const session = sessionManager.getSession(sessionId);
-        const language = languageParam || session?.context?.language || 'en';
-        const responseXML = await africasTalkingService.generatePostAIMenuResponse(language);
+        const responseXML = await africasTalkingService.generatePostAIMenuResponse(languageParam);
         
         res.set('Content-Type', 'application/xml');
         res.send(responseXML);
@@ -352,27 +356,31 @@ class VoiceController {
       // Handle user's choice
       const choice = africasTalkingService.extractMenuChoice(dtmfDigits);
       let responseXML = '';
+      const language = languageParam as 'en' | 'yo' | 'ha';
       
       switch (choice) {
-        case 1: // Speak with human expert
-          responseXML = await africasTalkingService.generateTransferResponse();
+        case 1: // Ask another question - use follow-up recording (no language selection message)
+          responseXML = await africasTalkingService.generateFollowUpRecordingResponse(language);
+          break;
+          
+        case 2: // Speak with human expert
+          responseXML = await africasTalkingService.generateTransferResponse(language);
+          break;
+          
+        case 3: // Go back to main menu
+          responseXML = await africasTalkingService.generateWelcomeResponse();
           break;
           
         case 0: // End call
-          const endSession = sessionManager.getSession(sessionId);
-          const endLanguage = (languageParam || endSession?.context?.language || 'en') as 'en' | 'yo' | 'ha';
-          const endGoodbyeMessage = this.getGoodbyeMessage(endLanguage);
+          const endGoodbyeMessage = this.getGoodbyeMessage(language);
           responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.generateLanguageSpecificSay(endGoodbyeMessage, endLanguage)}
-  <Hangup/>
+  ${await this.generateLanguageSpecificSay(endGoodbyeMessage, language)}
 </Response>`;
           break;
           
         default:
-          // Get session to determine language for repeat prompt
-          const defaultSession = sessionManager.getSession(sessionId);
-          const language = languageParam || defaultSession?.context?.language || 'en';
+          // Invalid choice - repeat the menu
           responseXML = await africasTalkingService.generatePostAIMenuResponse(language);
       }
       
@@ -386,84 +394,6 @@ class VoiceController {
     }
   }
   
-  handleAIProcessing = async (req: Request, res: Response): Promise<void> => {
-    try {
-      const sessionId = req.query.session as string;
-      const webhookData = req.body as AfricasTalkingWebhook;
-      const { isActive } = webhookData;
-
-      logger.info(`🤖 CHECKING AI RESULTS for session: ${sessionId}, isActive: ${isActive}`);
-
-      // If call is not active, just return empty response
-      if (isActive === "0") {
-        logger.info(`❌ Call ended for session: ${sessionId}, returning empty response`);
-        res.status(200).send('');
-        return;
-      }
-
-      // Get session data
-      const session = sessionManager.getSession(sessionId);
-      if (!session) {
-        logger.error(`No session found: ${sessionId}`);
-        res.set('Content-Type', 'application/xml');
-        res.send(await africasTalkingService.generateErrorResponse());
-        return;
-      }
-
-      const language = (session.context.language || session.language || 'en') as 'en' | 'yo' | 'ha';
-
-      // Check if processing encountered an error
-      if (session.context.processingError) {
-        logger.error(`Processing error detected for session: ${sessionId}`);
-        res.set('Content-Type', 'application/xml');
-        res.send(await africasTalkingService.generateErrorResponse(language));
-        return;
-      }
-
-      // Check if AI response is ready (from background processing)
-      if (session.context.aiReady && session.context.aiResponse) {
-        logger.info(`✅ AI response already ready for session ${sessionId}`);
-        const cleanedResponse = session.context.aiResponse;
-
-        // Generate the language-specific audio/say tag
-        logger.info(`🔊 Generating audio tag for language: ${language}, text: ${cleanedResponse.substring(0, 50)}...`);
-        const audioTag = await this.generateLanguageSpecificSay(cleanedResponse, language);
-        logger.info(`🔊 Generated audio tag: ${audioTag.substring(0, 100)}...`);
-
-        // Generate response with AI answer and redirect to post-AI menu
-        const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  ${audioTag}
-  <Redirect>${config.webhook.baseUrl}/voice/post-ai?session=${sessionId}&language=${language}</Redirect>
-</Response>`;
-
-        logger.info(`🎤 SENDING CACHED AI RESPONSE XML:`);
-        logger.info(responseXML);
-        res.set('Content-Type', 'application/xml');
-        res.send(responseXML);
-        return;
-      }
-
-      // If not ready yet, wait a bit and redirect back (polling approach)
-      logger.info(`⏳ AI still processing for session ${sessionId}, redirecting...`);
-      const waitMessage = this.getWaitMessage(language);
-      const redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  ${await this.generateLanguageSpecificSay(waitMessage, language)}
-  <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
-</Response>`;
-
-      res.set('Content-Type', 'application/xml');
-      res.send(redirectXML);
-
-    } catch (error) {
-      logger.error('💥 ERROR processing AI request:', error);
-      const session = sessionManager.getSession(req.query.session as string);
-      const lang = (session?.context?.language || session?.language || 'en') as 'en' | 'yo' | 'ha';
-      res.set('Content-Type', 'application/xml');
-      res.send(await africasTalkingService.generateErrorResponse(lang));
-    }
-  }
   
   private cleanAIResponse(response: string): string {
     // Remove markdown formatting, stars, and clean up for audio
@@ -475,6 +405,30 @@ class VoiceController {
       .replace(/\n/g, '. ') // Replace newlines with periods
       .replace(/\s+/g, ' ') // Remove extra spaces
       .trim();
+  }
+
+  /**
+   * Truncate AI response to prevent large audio files that cause AT timeouts
+   */
+  private truncateForAudio(text: string, maxLength: number = 500): string {
+    if (text.length <= maxLength) {
+      return text;
+    }
+    
+    // Find the last complete sentence within the limit
+    const truncated = text.substring(0, maxLength);
+    const lastPeriod = truncated.lastIndexOf('.');
+    const lastExclamation = truncated.lastIndexOf('!');
+    const lastQuestion = truncated.lastIndexOf('?');
+    
+    const lastSentenceEnd = Math.max(lastPeriod, lastExclamation, lastQuestion);
+    
+    if (lastSentenceEnd > 0) {
+      return truncated.substring(0, lastSentenceEnd + 1);
+    }
+    
+    // If no sentence boundary found, just truncate and add period
+    return truncated.trim() + '.';
   }
 
   /**
@@ -495,29 +449,7 @@ class VoiceController {
     return `<Say voice="woman">${text}</Say>`;
   }
 
-  /**
-   * Get processing message in appropriate language
-   */
-  private getProcessingMessage(language: 'en' | 'yo' | 'ha'): string {
-    const messages = {
-      en: "Thank you for your question. Agrocist is analyzing your concern. Please wait a moment for your response.",
-      yo: "A dúpẹ́ fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìṣòro yín. Ẹ dúró díẹ̀ fún ìdáhùn yín.",
-      ha: "Na gode da tambayar ku. Agrocist yana nazarin damuwar ku. Don Allah ku jira na ɗan lokaci don amsar ku."
-    };
-    return messages[language] || messages.en;
-  }
 
-  /**
-   * Get wait message in appropriate language (for polling)
-   */
-  private getWaitMessage(language: 'en' | 'yo' | 'ha'): string {
-    const messages = {
-      en: "Just a moment, processing your request.",
-      yo: "Ẹ dúró díẹ̀, a ń ṣe ìbéèrè yín.",
-      ha: "Don Allah ku ɗan jira, muna aiwatar da buƙatarku."
-    };
-    return messages[language] || messages.en;
-  }
 
   /**
    * Get no-recording error message in appropriate language
@@ -527,6 +459,18 @@ class VoiceController {
       en: "I didn't hear your recording. Please try again and speak after the beep.",
       yo: "Mi ò gbọ́ ìgbóhùn yín. Ẹ jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan si, kí ẹ sì sọ̀rọ̀ lẹ́yìn ìró àlámọ́.",
       ha: "Ban ji rikodin ku ba. Don Allah ku sake gwadawa kuma ku yi magana bayan sautin."
+    };
+    return messages[language] || messages.en;
+  }
+
+  /**
+   * Get processing message in appropriate language
+   */
+  private getProcessingMessage(language: 'en' | 'yo' | 'ha'): string {
+    const messages = {
+      en: "Thank you for your question. Agrocist is analyzing your concern.",
+      yo: "A dúpẹ́ fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìṣòro yín.",
+      ha: "Na gode da tambayar ku. Agrocist yana nazarin damuwar ku."
     };
     return messages[language] || messages.en;
   }

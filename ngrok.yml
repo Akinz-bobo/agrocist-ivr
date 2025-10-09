@@ -1,0 +1,15 @@
+version: 2
+authtoken: # Your ngrok authtoken (get from https://dashboard.ngrok.com/auth)
+
+tunnels:
+  ivr:
+    proto: http
+    addr: 3000
+    subdomain: # Optional: use a custom subdomain (requires paid plan)
+    host_header: localhost:3000
+    bind_tls: true
+    inspect: true
+    # For Africa's Talking webhooks, we want consistent URLs
+    schemes:
+      - https
+      - http
