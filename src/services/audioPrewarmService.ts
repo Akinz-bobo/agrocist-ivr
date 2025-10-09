@@ -42,6 +42,14 @@ class AudioPrewarmService {
       "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!",
       "Yi hakuri, ban fahimci hakan ba. Bari in mayar da ku zuwa babban menu.",
       "Don Allah ku ɗan jira, muna aiwatar da buƙatarku."
+    ],
+    ig: [
+      "Ịhọrọla Igbo. Biko kọwaa nsogbu anụmanụ gị. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara.",
+      "Daalụ maka ajụjụ gị. Agrocist na-enyocha nsogbu gị. Biko chere ntakịrị maka nzaghachi gị.",
+      "Ị chọrọ ikwu okwu na ọkachamara veterinary mmadụ? Pịa 1 iji kwuo okwu na ọkachamara, ma ọ bụ pịa 0 iji kwụsị oku a.",
+      "Daalụ maka iji Agrocist. Nwee ụbọchị ọma!",
+      "Ewela iwe, aghọtaghị m ihe ị kwuru. Ka m laghachi gị na menu izizi.",
+      "Biko chere ntakịrị, anyị na-edozi ihe ị chọrọ."
     ]
   };
 
@@ -57,7 +65,7 @@ class AudioPrewarmService {
     logger.info('🔥 Starting audio pre-warming process...');
     const startTime = Date.now();
 
-    const languages: Array<'en' | 'yo' | 'ha'> = ['en', 'yo', 'ha'];
+    const languages: Array<'en' | 'yo' | 'ha' | 'ig'> = ['en', 'yo', 'ha', 'ig'];
     let successCount = 0;
     let failCount = 0;
 
@@ -93,7 +101,7 @@ class AudioPrewarmService {
   /**
    * Generate a single prompt
    */
-  private async generatePrompt(text: string, language: 'en' | 'yo' | 'ha'): Promise<void> {
+  private async generatePrompt(text: string, language: 'en' | 'yo' | 'ha' | 'ig'): Promise<void> {
     const options: TTSOptions = { language };
     await ttsService.generateSpeech(text, options);
   }
@@ -108,7 +116,7 @@ class AudioPrewarmService {
   /**
    * Pre-warm specific prompt on-demand
    */
-  async prewarmSpecific(text: string, language: 'en' | 'yo' | 'ha'): Promise<void> {
+  async prewarmSpecific(text: string, language: 'en' | 'yo' | 'ha' | 'ig'): Promise<void> {
     try {
       await this.generatePrompt(text, language);
       logger.info(`🔥 On-demand pre-warm completed for (${language}): ${text.substring(0, 50)}...`);

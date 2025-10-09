@@ -137,15 +137,25 @@ class VoiceController {
             }
             break;
             
-          case 4: // Repeat menu
+          case 4: // Igbo (only if TTS available)
+            if (ttsAvailable) {
+              selectedLanguage = 'ig';
+              responseXML = await africasTalkingService.generateDirectRecordingResponse('ig');
+            } else {
+              logger.warn(`TTS unavailable, rejecting Igbo choice for session: ${sessionId}`);
+              responseXML = await africasTalkingService.generateLanguageMenuResponse();
+            }
+            break;
+            
+          case 5: // Repeat menu
             responseXML = await africasTalkingService.generateLanguageMenuResponse();
             break;
             
           case 0: // End call
-            const goodbyeMessage = this.getGoodbyeMessage(selectedLanguage as 'en' | 'yo' | 'ha');
+            const goodbyeMessage = this.getGoodbyeMessage(selectedLanguage as 'en' | 'yo' | 'ha' | 'ig');
             responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.generateLanguageSpecificSay(goodbyeMessage, selectedLanguage as 'en' | 'yo' | 'ha')}
+  ${await this.generateLanguageSpecificSay(goodbyeMessage, selectedLanguage as 'en' | 'yo' | 'ha' | 'ig')}
 </Response>`;
             break;
             
@@ -160,7 +170,7 @@ class VoiceController {
         // Update in both places for maximum persistence
         const session = sessionManager.getSession(sessionId);
         if (session) {
-          session.language = selectedLanguage as 'en' | 'yo' | 'ha';
+          session.language = selectedLanguage as 'en' | 'yo' | 'ha' | 'ig';
           sessionManager.saveSession(session);
         }
         sessionManager.updateSessionContext(sessionId, { language: selectedLanguage });
@@ -208,16 +218,15 @@ class VoiceController {
 
       // Get session language IMMEDIATELY for appropriate voice
       const session = sessionManager.getSession(sessionId);
-      const sessionLanguage = (session?.context?.language || session?.language || 'en') as 'en' | 'yo' | 'ha';
+      const sessionLanguage = (session?.context?.language || session?.language || 'en') as 'en' | 'yo' | 'ha' | 'ig';
 
       // Check if we have a recording URL
       if (!recording) {
         logger.warn(`⚠️ No recording URL received for session: ${sessionId}`);
         // Return error and ask to try again
-        const errorMessage = this.getNoRecordingMessage(sessionLanguage);
         const errorXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.generateLanguageSpecificSay(errorMessage, sessionLanguage)}
+  ${await this.generateStaticAudioSay('noRecording', sessionLanguage)}
   <Redirect>${config.webhook.baseUrl}/voice/language</Redirect>
 </Response>`;
         res.set('Content-Type', 'application/xml');
@@ -241,8 +250,7 @@ class VoiceController {
       });
 
       // Respond IMMEDIATELY with processing message and redirect
-      const processingMessage = this.getProcessingMessage(sessionLanguage);
-      const processingAudio = await this.generateLanguageSpecificSay(processingMessage, sessionLanguage);
+      const processingAudio = await this.generateStaticAudioSay('processing', sessionLanguage);
       
       const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -291,7 +299,7 @@ class VoiceController {
       // Handle user's choice
       const choice = africasTalkingService.extractMenuChoice(dtmfDigits);
       let responseXML = '';
-      const language = languageParam as 'en' | 'yo' | 'ha';
+      const language = languageParam as 'en' | 'yo' | 'ha' | 'ig';
       
       switch (choice) {
         case 1: // Ask another question - use follow-up recording (no language selection message)
@@ -307,10 +315,9 @@ class VoiceController {
           break;
           
         case 0: // End call
-          const endGoodbyeMessage = this.getGoodbyeMessage(language);
           responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.generateLanguageSpecificSay(endGoodbyeMessage, language)}
+  ${await this.generateStaticAudioSay('goodbye', language)}
 </Response>`;
           break;
           
@@ -369,9 +376,9 @@ class VoiceController {
   /**
    * Generate language-specific Say tag using TTS when available, fallback to default voice
    */
-  private async generateLanguageSpecificSay(text: string, language: 'en' | 'yo' | 'ha'): Promise<string> {
+  private async generateLanguageSpecificSay(text: string, language: 'en' | 'yo' | 'ha' | 'ig'): Promise<string> {
     try {
-      // Try to generate TTS audio with appropriate voice for the language
+      // This is for dynamic AI responses only - static messages use staticAudioService directly
       const audioUrl = await africasTalkingService.generateTTSAudio(text, language);
       if (audioUrl) {
         return `<Play url="${audioUrl}"/>`;
@@ -381,7 +388,40 @@ class VoiceController {
     }
     
     // Fallback to Say tag
-    return `<Say voice="woman">${text}</Say>`;
+    return `<Say voice="woman">${this.escapeXML(text)}</Say>`;
+  }
+
+  /**
+   * Generate static audio using pre-generated files
+   */
+  private async generateStaticAudioSay(textKey: 'welcome' | 'processing' | 'error' | 'goodbye' | 'noRecording' | 'wait' | 'directRecording' | 'followUpRecording' | 'postAIMenu' | 'noInputMessage' | 'transfer', language: 'en' | 'yo' | 'ha' | 'ig'): Promise<string> {
+    try {
+      // First try to get pre-generated static audio
+      const staticAudioService = (await import('../services/staticAudioService')).default;
+      const audioUrl = staticAudioService.getStaticAudioUrl(language, textKey);
+      
+      if (audioUrl) {
+        logger.info(`🎵 Using pre-generated static audio for ${language}_${textKey}`);
+        return `<Play url="${audioUrl}"/>`;
+      } else {
+        logger.warn(`⚠️ No pre-generated audio for ${language}_${textKey}, generating dynamically`);
+        const text = staticAudioService.getStaticText(language, textKey);
+        return await this.generateLanguageSpecificSay(text, language);
+      }
+    } catch (error) {
+      logger.error(`Error generating static audio for ${language}_${String(textKey)}:`, error);
+      // Fallback to basic Say tag
+      return `<Say voice="woman">System message</Say>`;
+    }
+  }
+
+  private escapeXML(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
   }
 
 
@@ -389,11 +429,12 @@ class VoiceController {
   /**
    * Get no-recording error message in appropriate language
    */
-  private getNoRecordingMessage(language: 'en' | 'yo' | 'ha'): string {
+  private getNoRecordingMessage(language: 'en' | 'yo' | 'ha' | 'ig'): string {
     const messages = {
       en: "I didn't hear your recording. Please try again and speak after the beep.",
       yo: "Mi ò gbọ́ ìgbóhùn yín. Ẹ jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan si, kí ẹ sì sọ̀rọ̀ lẹ́yìn ìró àlámọ́.",
-      ha: "Ban ji rikodin ku ba. Don Allah ku sake gwadawa kuma ku yi magana bayan sautin."
+      ha: "Ban ji rikodin ku ba. Don Allah ku sake gwadawa kuma ku yi magana bayan sautin.",
+      ig: "Anụghị m ndekọ gị. Biko gbalịa ọzọ ma kwuo okwu mgbe ụda ahụ gasịrị."
     };
     return messages[language] || messages.en;
   }
@@ -401,11 +442,12 @@ class VoiceController {
   /**
    * Get processing message in appropriate language
    */
-  private getProcessingMessage(language: 'en' | 'yo' | 'ha'): string {
+  private getProcessingMessage(language: 'en' | 'yo' | 'ha' | 'ig'): string {
     const messages = {
       en: "Thank you for your question. Agrocist is analyzing your concern.",
       yo: "A dúpẹ́ fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìṣòro yín.",
-      ha: "Na gode da tambayar ku. Agrocist yana nazarin damuwar ku."
+      ha: "Na gode da tambayar ku. Agrocist yana nazarin damuwar ku.",
+      ig: "Daalụ maka ajụjụ gị. Agrocist na-enyocha nsogbu gị."
     };
     return messages[language] || messages.en;
   }
@@ -413,11 +455,12 @@ class VoiceController {
   /**
    * Get goodbye message in appropriate language
    */
-  private getGoodbyeMessage(language: 'en' | 'yo' | 'ha'): string {
+  private getGoodbyeMessage(language: 'en' | 'yo' | 'ha' | 'ig'): string {
     const messages = {
       en: "Thank you for using Agrocist. Have a great day!",
       yo: "A dúpẹ́ fún lilo Agrocist. Ẹ ní ọjọ́ tí ó dára!",
-      ha: "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!"
+      ha: "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!",
+      ig: "Daalụ maka iji Agrocist. Nwee ụbọchị ọma!"
     };
     return messages[language] || messages.en;
   }
@@ -425,7 +468,7 @@ class VoiceController {
   /**
    * Process recording in background for speed - no TTS generation to avoid delays
    */
-  private async processRecordingInBackground(sessionId: string, recordingUrl: string, language: 'en' | 'yo' | 'ha'): Promise<void> {
+  private async processRecordingInBackground(sessionId: string, recordingUrl: string, language: 'en' | 'yo' | 'ha' | 'ig'): Promise<void> {
     try {
       const startTime = Date.now();
 
@@ -494,7 +537,7 @@ class VoiceController {
         return;
       }
 
-      const language = (session.context.language || session.language || 'en') as 'en' | 'yo' | 'ha';
+      const language = (session.context.language || session.language || 'en') as 'en' | 'yo' | 'ha' | 'ig';
 
       // Check if processing encountered an error
       if (session.context.processingError) {
@@ -540,10 +583,9 @@ class VoiceController {
 
       // If not ready yet, wait and redirect back
       logger.info(`⏳ AI still processing for session ${sessionId}, redirecting...`);
-      const waitMessage = this.getWaitMessage(language);
       const redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.generateLanguageSpecificSay(waitMessage, language)}
+  ${await this.generateStaticAudioSay('wait', language)}
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
 
@@ -553,7 +595,7 @@ class VoiceController {
     } catch (error) {
       logger.error('💥 ERROR processing AI request:', error);
       const session = sessionManager.getSession(req.query.session as string);
-      const lang = (session?.context?.language || session?.language || 'en') as 'en' | 'yo' | 'ha';
+      const lang = (session?.context?.language || session?.language || 'en') as 'en' | 'yo' | 'ha' | 'ig';
       res.set('Content-Type', 'application/xml');
       res.send(await africasTalkingService.generateErrorResponse(lang));
     }
@@ -562,11 +604,12 @@ class VoiceController {
   /**
    * Get wait message in appropriate language (for polling)
    */
-  private getWaitMessage(language: 'en' | 'yo' | 'ha'): string {
+  private getWaitMessage(language: 'en' | 'yo' | 'ha' | 'ig'): string {
     const messages = {
       en: "Just a moment, processing your request.",
       yo: "Ẹ dúró díẹ̀, a ń ṣe ìbéèrè yín.",
-      ha: "Don Allah ku ɗan jira, muna aiwatar da buƙatarku."
+      ha: "Don Allah ku ɗan jira, muna aiwatar da buƙatarku.",
+      ig: "Chere ntakịrị, anyị na-edozi ihe ị chọrọ."
     };
     return messages[language] || messages.en;
   }

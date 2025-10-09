@@ -16,7 +16,7 @@ export interface TTSVoiceConfig {
 }
 
 export interface TTSOptions {
-  language: 'en' | 'yo' | 'ha';
+  language: 'en' | 'yo' | 'ha' | 'ig';
   speed?: number;
   pitch?: number;
   volume?: number;
@@ -50,6 +50,12 @@ class TTSService {
       provider: 'dsn',
       voiceId: 'zainab', // Clear, loud Hausa female voice
       language: 'ha',
+      gender: 'female'
+    },
+    ig: {
+      provider: 'dsn',
+      voiceId: 'amara', // Clear, loud Igbo female voice
+      language: 'ig',
       gender: 'female'
     }
   };

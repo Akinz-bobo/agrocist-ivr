@@ -2,7 +2,7 @@ export interface CallSession {
   sessionId: string;
   callerNumber: string;
   currentMenu: string;
-  language: 'en' | 'yo' | 'ha';
+  language: 'en' | 'yo' | 'ha' | 'ig';
   context: Record<string, any>;
   startTime: Date;
   menuHistory: string[];

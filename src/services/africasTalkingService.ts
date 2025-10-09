@@ -2,6 +2,7 @@ const AfricasTalking = require("africastalking");
 import config from "../config";
 import logger from "../utils/logger";
 import ttsService, { TTSOptions } from "./ttsService";
+import staticAudioService from "./staticAudioService";
 
 class AfricasTalkingService {
   private client;
@@ -17,7 +18,7 @@ class AfricasTalkingService {
     this.voice = this.client.VOICE;
   }
 
-  async generateResponse(text: string, language: 'en' | 'yo' | 'ha' = 'en', nextAction?: string): Promise<string> {
+  async generateResponse(text: string, language: 'en' | 'yo' | 'ha' | 'ig' = 'en', nextAction?: string): Promise<string> {
     let response = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>`;
 
@@ -80,7 +81,7 @@ class AfricasTalkingService {
 </Response>`;
   }
 
-  async generateRecordingResponse(prompt: string, language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
+  async generateRecordingResponse(prompt: string, language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
     const audioUrl = await this.generateTTSAudio(prompt, language);
     const playTag = audioUrl ? 
       `<Play url="${audioUrl}"/>` : 
@@ -101,7 +102,7 @@ class AfricasTalkingService {
 </Response>`;
   }
 
-  async generateErrorResponse(language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
+  async generateErrorResponse(language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
     const errorText = this.getLocalizedText('error', language);
     const audioUrl = await this.generateTTSAudio(errorText, language);
     const playTag = audioUrl ? 
@@ -115,7 +116,7 @@ class AfricasTalkingService {
 </Response>`;
   }
 
-  async generateTransferResponse(language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
+  async generateTransferResponse(language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${await this.getTransferXML(language)}
@@ -130,14 +131,31 @@ class AfricasTalkingService {
   }
 
   async generateDirectRecordingResponse(language: string): Promise<string> {
+    // Try to use pre-generated static audio first
+    try {
+      const audioUrl = staticAudioService.getStaticAudioUrl(language as 'en' | 'yo' | 'ha' | 'ig', 'directRecording');
+      if (audioUrl) {
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+    <Play url="${audioUrl}"/>
+  </Record>
+</Response>`;
+      }
+    } catch (error) {
+      logger.warn('Failed to get static audio for direct recording, falling back to dynamic generation');
+    }
+
+    // Fallback to dynamic generation
     const prompts = {
       en: "You have selected English. Please describe your livestock concern. Speak clearly after the beep and press hash when done.",
       yo: "Ẹ ti yan Èdè Yorùbá. Ẹ sọ ìṣòro ẹranko yín kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
       ha: "Kun zaɓi Hausa. Don Allah ku bayyana matsalar dabbobinku. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama.",
+      ig: "Ịhọrọla Igbo. Biko kọwaa nsogbu anụmanụ gị. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara.",
     };
 
     const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
-    const langCode = language as 'en' | 'yo' | 'ha';
+    const langCode = language as 'en' | 'yo' | 'ha' | 'ig';
 
     // According to Africa's Talking docs, prompt should be INSIDE the Record tag
     // This ensures the beep plays and recording starts properly
@@ -163,14 +181,31 @@ class AfricasTalkingService {
   }
 
   async generateFollowUpRecordingResponse(language: string): Promise<string> {
+    // Try to use pre-generated static audio first
+    try {
+      const audioUrl = staticAudioService.getStaticAudioUrl(language as 'en' | 'yo' | 'ha' | 'ig', 'followUpRecording');
+      if (audioUrl) {
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+    <Play url="${audioUrl}"/>
+  </Record>
+</Response>`;
+      }
+    } catch (error) {
+      logger.warn('Failed to get static audio for follow-up recording, falling back to dynamic generation');
+    }
+
+    // Fallback to dynamic generation
     const prompts = {
       en: "Please ask your next question or describe another livestock concern. Speak clearly after the beep and press hash when done.",
       yo: "Ẹ béèrè ìbéèrè yín tókàn tàbí ẹ sọ ìṣòro ẹranko mìíràn. Ẹ sọ̀rọ̀ kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
       ha: "Don Allah ku yi wata tambaya ko ku bayyana wata matsalar dabbobi. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama.",
+      ig: "Biko jụọ ajụjụ gị ọzọ ma ọ bụ kọwaa nsogbu anụmanụ ọzọ. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara.",
     };
 
     const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
-    const langCode = language as 'en' | 'yo' | 'ha';
+    const langCode = language as 'en' | 'yo' | 'ha' | 'ig';
 
     // Generate TTS audio for the follow-up prompt
     const audioUrl = await this.generateTTSAudio(prompt, langCode);
@@ -199,10 +234,11 @@ class AfricasTalkingService {
       en: "Do you have any other concerns? Press 1 to ask another question, press 2 to speak with a human expert, press 3 to go back to main menu, or press 0 to end the call.",
       yo: "Ṣé ẹ fẹ́ bá dokita oníwòsàn ẹranko sọ̀rọ̀? Ẹ tẹ́ ọ̀kan láti bá amọ̀ràn sọ̀rọ̀, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
       ha: "Kana son yin magana da ƙwararren likitan dabbobi? Danna ɗaya don yin magana da ƙwararre, ko danna sifili don kammala kiran.",
+      ig: "Ị nwere nsogbu ndị ọzọ? Pịa 1 iji jụọ ajụjụ ọzọ, pịa 2 iji kwuo okwu na ọkachamara mmadụ, pịa 3 iji laghachi na menu izizi, ma ọ bụ pịa 0 iji kwụsị oku a.",
     };
 
     const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
-    const langCode = (language as 'en' | 'yo' | 'ha') || 'en';
+    const langCode = (language as 'en' | 'yo' | 'ha' | 'ig') || 'en';
     
     // Generate TTS audio with appropriate voice for the language
     const audioUrl = await this.generateTTSAudio(prompt, langCode);
@@ -232,33 +268,37 @@ ${welcomeXML}
   }
 
   /**
-   * Generate multi-language welcome message with appropriate voices for each language
-   * SIMPLIFIED: Use single Play tag to avoid Africa's Talking limitations
+   * Generate multi-language welcome message using pre-generated static audio
    */
   private async generateMultiLanguageWelcome(): Promise<string> {
     try {
-      // Use simple, compatible text - no complex SSML
-      const welcomeText = "Welcome to Agrocist, your trusted livestock farming partner. Press 1 for English, 2 for Yoruba, or 3 for Hausa.";
-
-      const audioUrl = await this.generateTTSAudio(welcomeText, 'en');
+      // Try to get pre-generated welcome audio
+      const audioUrl = staticAudioService.getStaticAudioUrl('en', 'welcome');
 
       if (audioUrl) {
-        logger.info(`📢 Welcome audio URL: ${audioUrl}`);
+        logger.info(`📢 Welcome audio URL (static): ${audioUrl}`);
         return `    <Play url="${audioUrl}"/>`;
       } else {
-        logger.warn('⚠️ No audio URL for welcome, using simple Say tag');
-        return `    <Say>${this.escapeXML(welcomeText)}</Say>`;
+        logger.warn('⚠️ No static audio URL for welcome, generating dynamically');
+        const welcomeText = staticAudioService.getStaticText('en', 'welcome');
+        const dynamicAudioUrl = await this.generateTTSAudio(welcomeText, 'en');
+        
+        if (dynamicAudioUrl) {
+          return `    <Play url="${dynamicAudioUrl}"/>`;
+        } else {
+          return `    <Say>${this.escapeXML(welcomeText)}</Say>`;
+        }
       }
     } catch (error) {
       logger.error('Error generating multi-language welcome:', error);
-      // Fallback to simple English welcome
-      const fallbackText = "Welcome to Agrocist. Press 1 for English, 2 for Yoruba, or 3 for Hausa.";
+      // Fallback to simple text
+      const fallbackText = "Welcome to Agrocist. Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.";
       return `    <Say>${this.escapeXML(fallbackText)}</Say>`;
     }
   }
 
 
-  private async getRecordingXML(_language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
+  private async getRecordingXML(_language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
     // Note: Prompt should be played BEFORE calling this method (not inside Record tag)
     // Using maxLength instead of timeout (Africa's Talking requirement)
     // maxLength: 30 seconds max recording duration
@@ -274,7 +314,7 @@ ${welcomeXML}
   </Record>`;
   }
 
-  private async getTransferXML(language: 'en' | 'yo' | 'ha' = 'en'): Promise<string> {
+  private async getTransferXML(language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
     const transferText = this.getLocalizedText('transfer', language);
     const audioUrl = await this.generateTTSAudio(transferText, language);
     const playTag = audioUrl ? 
@@ -336,7 +376,7 @@ ${welcomeXML}
   /**
    * Generate TTS audio for text in specified language
    */
-  async generateTTSAudio(text: string, language: 'en' | 'yo' | 'ha'): Promise<string | null> {
+  async generateTTSAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig'): Promise<string | null> {
     try {
       // Check if we should use Say only for testing
       if (config.testing.useSayOnly) {
@@ -368,7 +408,7 @@ ${welcomeXML}
   /**
    * Get voice name for language according to Google TTS supported voices
    */
-  private getVoiceForLanguage(language: 'en' | 'yo' | 'ha'): string {
+  private getVoiceForLanguage(language: 'en' | 'yo' | 'ha' | 'ig'): string {
     // Use simple 'woman' voice - more compatible with Africa's Talking
     return 'woman';
   }
@@ -385,27 +425,31 @@ ${welcomeXML}
       .replace(/'/g, '&apos;');
   }
 
-  private getLocalizedText(key: string, language: 'en' | 'yo' | 'ha'): string {
+  private getLocalizedText(key: string, language: 'en' | 'yo' | 'ha' | 'ig'): string {
     const texts: Record<string, Record<string, string>> = {
       goodbye: {
         en: "Thank you for using Agrocist. Have a great day!",
         yo: "A dúpẹ́ fún lilo Agrocist. Ẹ ní ọjọ́ tí ó dára!",
-        ha: "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!"
+        ha: "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!",
+        ig: "Daalụ maka iji Agrocist. Nwee ụbọchị ọma!"
       },
       error: {
         en: "I'm sorry, I didn't understand that. Let me take you back to the main menu.",
         yo: "Má bínú, kò yé mi ohun tí ẹ sọ. Ẹ jẹ́ kí n gbé yín padà sí àtòjọ àkọ́kọ́.",
-        ha: "Yi hakuri, ban fahimci hakan ba. Bari in mayar da ku zuwa babban menu."
+        ha: "Yi hakuri, ban fahimci hakan ba. Bari in mayar da ku zuwa babban menu.",
+        ig: "Ewela iwe, aghọtaghị m ihe ị kwuru. Ka m laghachi gị na menu izizi."
       },
       record_prompt: {
         en: "Please describe your livestock concern. Speak clearly after the beep and press hash when done.",
         yo: "Ẹ sọ ìṣòro ẹranko yín kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
-        ha: "Don Allah ku bayyana matsalar dabbobinku. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama."
+        ha: "Don Allah ku bayyana matsalar dabbobinku. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama.",
+        ig: "Biko kọwaa nsogbu anụmanụ gị. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara."
       },
       transfer: {
         en: "Please hold while I connect you to one of our veterinary experts.",
         yo: "Ẹ dúró síbẹ̀ kí n so yín mọ́ ọ̀kan lára àwọn amọ̀ràn oníwòsàn ẹranko wa.",
-        ha: "Don Allah ku jira yayin da nake haɗa ku da ɗaya daga cikin ƙwararrun likitocin dabbobinmu."
+        ha: "Don Allah ku jira yayin da nake haɗa ku da ɗaya daga cikin ƙwararrun likitocin dabbobinmu.",
+        ig: "Biko chere ka m jikọọ gị na otu n'ime ndị ọkachamara veterinary anyị."
       }
     };
 
