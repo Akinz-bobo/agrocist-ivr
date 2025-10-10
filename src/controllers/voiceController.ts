@@ -5,6 +5,8 @@ import aiService from '../services/aiService';
 import sessionManager from '../utils/sessionManager';
 import logger from '../utils/logger';
 import config from '../config';
+import engagementService from '../services/engagementService';
+import { IVRState, TerminationReason } from '../models/EngagementMetrics';
 
 class VoiceController {
 
@@ -47,6 +49,18 @@ class VoiceController {
           duration: durationInSeconds,
           callStatus: callStatus || call_status
         });
+
+        // Track call termination if we have sessionId
+        if (sessionId && callerNumber) {
+          try {
+            const terminationReason = this.determineTerminationReason(callEndReason, durationInSeconds);
+            const completed = terminationReason === TerminationReason.COMPLETED_SUCCESSFULLY;
+            await engagementService.endSession(sessionId, terminationReason, completed);
+          } catch (error) {
+            logger.warn('Failed to track call termination:', error);
+          }
+        }
+
         res.status(200).send('');
         return;
       }
@@ -63,6 +77,24 @@ class VoiceController {
       if (sessionId && callerNumber) {
         sessionManager.createSession(sessionId, callerNumber);
         logger.info(`📝 Created session for incoming call: ${sessionId}`);
+
+        // Start engagement tracking
+        try {
+          const engagementSessionId = await engagementService.startSession(
+            callerNumber, 
+            sessionId,
+            req.get('User-Agent'),
+            req.ip
+          );
+          
+          // Track initial state transition to welcome
+          await engagementService.trackStateTransition(engagementSessionId, IVRState.WELCOME);
+          
+          // Store engagement session ID for later use
+          sessionManager.updateSessionContext(sessionId, { engagementSessionId });
+        } catch (error) {
+          logger.warn('Failed to start engagement tracking:', error);
+        }
       }
       
       // Generate welcome response
@@ -97,6 +129,18 @@ class VoiceController {
         } else {
           logger.info(`Session ${sessionId} ended after language selection.`);
         }
+
+        // Track termination in language selection
+        try {
+          const session = sessionManager.getSession(sessionId);
+          const engagementSessionId = session?.context?.engagementSessionId;
+          if (engagementSessionId) {
+            await engagementService.endSession(engagementSessionId, TerminationReason.USER_HANGUP);
+          }
+        } catch (error) {
+          logger.warn('Failed to track language selection termination:', error);
+        }
+
         res.status(200).send('');
         return;
       }
@@ -166,7 +210,7 @@ class VoiceController {
       }
       
       // Store selected language in session if valid choice - both in context AND at session level
-      if (typeof choice === 'number' && [1, 2, 3].includes(choice)) {
+      if (typeof choice === 'number' && [1, 2, 3, 4].includes(choice)) {
         // Update in both places for maximum persistence
         const session = sessionManager.getSession(sessionId);
         if (session) {
@@ -176,6 +220,32 @@ class VoiceController {
         sessionManager.updateSessionContext(sessionId, { language: selectedLanguage });
         sessionManager.updateSessionMenu(sessionId, 'recording');
         logger.info(`✅ Language ${selectedLanguage} LOCKED for session: ${sessionId}, going directly to recording`);
+
+        // Track language selection
+        try {
+          const engagementSessionId = session?.context?.engagementSessionId;
+          if (engagementSessionId) {
+            await engagementService.trackLanguageSelection(engagementSessionId, selectedLanguage as 'en' | 'yo' | 'ha' | 'ig');
+            await engagementService.trackStateTransition(
+              engagementSessionId, 
+              IVRState.RECORDING_PROMPT, 
+              dtmfDigits || choice.toString()
+            );
+          }
+        } catch (error) {
+          logger.warn('Failed to track language selection:', error);
+        }
+      } else if (choice === 0) {
+        // Track call end choice
+        try {
+          const session = sessionManager.getSession(sessionId);
+          const engagementSessionId = session?.context?.engagementSessionId;
+          if (engagementSessionId) {
+            await engagementService.endSession(engagementSessionId, TerminationReason.COMPLETED_SUCCESSFULLY, true);
+          }
+        } catch (error) {
+          logger.warn('Failed to track call end choice:', error);
+        }
       }
 
       // Log the XML response being sent
@@ -212,6 +282,18 @@ class VoiceController {
             recordingDuration: callRecordingDurationInSeconds
           });
         }
+
+        // Track termination during recording
+        try {
+          const session = sessionManager.getSession(sessionId);
+          const engagementSessionId = session?.context?.engagementSessionId;
+          if (engagementSessionId) {
+            await engagementService.endSession(engagementSessionId, TerminationReason.USER_HANGUP);
+          }
+        } catch (error) {
+          logger.warn('Failed to track recording termination:', error);
+        }
+
         res.status(200).send('');
         return;
       }
@@ -239,6 +321,17 @@ class VoiceController {
         recordingUrl: recording,
         recordingDuration: callRecordingDurationInSeconds
       });
+
+      // Track recording state transition
+      try {
+        const engagementSessionId = session?.context?.engagementSessionId;
+        if (engagementSessionId) {
+          await engagementService.trackStateTransition(engagementSessionId, IVRState.RECORDING_IN_PROGRESS);
+          await engagementService.trackStateTransition(engagementSessionId, IVRState.AI_PROCESSING);
+        }
+      } catch (error) {
+        logger.warn('Failed to track recording states:', error);
+      }
 
       // Hybrid approach: immediate processing message + background AI processing
       logger.info(`🚀 Starting hybrid processing for session: ${sessionId}`);
@@ -283,12 +376,35 @@ class VoiceController {
       // If call is not active, end call
       if (isActive === "0") {
         logger.info(`Session ${sessionId} ended after post-AI.`);
+        
+        // Track termination in post-AI
+        try {
+          const session = sessionManager.getSession(sessionId);
+          const engagementSessionId = session?.context?.engagementSessionId;
+          if (engagementSessionId) {
+            await engagementService.endSession(engagementSessionId, TerminationReason.USER_HANGUP);
+          }
+        } catch (error) {
+          logger.warn('Failed to track post-AI termination:', error);
+        }
+
         res.status(200).send('');
         return;
       }
 
       // If no DTMF digits, this is the initial redirect - show the post-AI menu
       if (!dtmfDigits) {
+        // Track state transition to post-AI menu
+        try {
+          const session = sessionManager.getSession(sessionId);
+          const engagementSessionId = session?.context?.engagementSessionId;
+          if (engagementSessionId) {
+            await engagementService.trackStateTransition(engagementSessionId, IVRState.POST_AI_MENU);
+          }
+        } catch (error) {
+          logger.warn('Failed to track post-AI menu state:', error);
+        }
+
         const responseXML = await africasTalkingService.generatePostAIMenuResponse(languageParam);
         
         res.set('Content-Type', 'application/xml');
@@ -301,6 +417,43 @@ class VoiceController {
       let responseXML = '';
       const language = languageParam as 'en' | 'yo' | 'ha' | 'ig';
       
+      // Track post-AI menu choice
+      try {
+        const session = sessionManager.getSession(sessionId);
+        const engagementSessionId = session?.context?.engagementSessionId;
+        if (engagementSessionId) {
+          switch (choice) {
+            case 1:
+              await engagementService.trackStateTransition(
+                engagementSessionId, 
+                IVRState.FOLLOW_UP_RECORDING, 
+                dtmfDigits
+              );
+              break;
+            case 2:
+              await engagementService.trackAgentTransfer(engagementSessionId);
+              await engagementService.trackStateTransition(
+                engagementSessionId, 
+                IVRState.HUMAN_AGENT_TRANSFER, 
+                dtmfDigits
+              );
+              break;
+            case 3:
+              await engagementService.trackStateTransition(
+                engagementSessionId, 
+                IVRState.WELCOME, 
+                dtmfDigits
+              );
+              break;
+            case 0:
+              await engagementService.endSession(engagementSessionId, TerminationReason.COMPLETED_SUCCESSFULLY, true);
+              break;
+          }
+        }
+      } catch (error) {
+        logger.warn('Failed to track post-AI choice:', error);
+      }
+
       switch (choice) {
         case 1: // Ask another question - use follow-up recording (no language selection message)
           responseXML = await africasTalkingService.generateFollowUpRecordingResponse(language);
@@ -504,12 +657,49 @@ class VoiceController {
         aiReady: true
       });
 
+      // 6. Track AI interaction in engagement metrics
+      try {
+        const session = sessionManager.getSession(sessionId);
+        const engagementSessionId = session?.context?.engagementSessionId;
+        const recordingDuration = session?.context?.recordingDuration || 0;
+        
+        if (engagementSessionId) {
+          await engagementService.trackAIInteraction(
+            engagementSessionId,
+            recordingDuration,
+            farmerText,
+            truncatedResponse,
+            aiTime,
+            0, // TTS generation time (we generate it later)
+            aiResponse.confidence
+          );
+        }
+      } catch (error) {
+        logger.warn('Failed to track AI interaction:', error);
+      }
+
       const totalTime = Date.now() - startTime;
       logger.info(`⚡ Background processing completed in ${totalTime}ms (Transcription: ${transcriptionTime}ms, AI: ${aiTime}ms)`);
 
     } catch (error) {
       logger.error(`Error in background processing for session ${sessionId}:`, error);
       sessionManager.updateSessionContext(sessionId, { processingError: true });
+      
+      // Track processing error
+      try {
+        const session = sessionManager.getSession(sessionId);
+        const engagementSessionId = session?.context?.engagementSessionId;
+        if (engagementSessionId) {
+          await engagementService.trackError(
+            engagementSessionId,
+            `AI processing error: ${error instanceof Error ? error.message : String(error)}`,
+            IVRState.AI_PROCESSING,
+            'high'
+          );
+        }
+      } catch (trackingError) {
+        logger.warn('Failed to track processing error:', trackingError);
+      }
     }
   }
 
@@ -551,6 +741,16 @@ class VoiceController {
       if (session.context.aiReady && session.context.aiResponse) {
         logger.info(`✅ AI response ready for session ${sessionId}`);
         const aiResponse = session.context.aiResponse;
+
+        // Track state transition to AI response
+        try {
+          const engagementSessionId = session.context.engagementSessionId;
+          if (engagementSessionId) {
+            await engagementService.trackStateTransition(engagementSessionId, IVRState.AI_RESPONSE);
+          }
+        } catch (error) {
+          logger.warn('Failed to track AI response state:', error);
+        }
 
         // Generate TTS now (when we know we need it)
         const audioTag = await this.generateLanguageSpecificSay(aiResponse, language);
@@ -612,6 +812,31 @@ class VoiceController {
       ig: "Chere ntakịrị, anyị na-edozi ihe ị chọrọ."
     };
     return messages[language] || messages.en;
+  }
+
+  /**
+   * Determine termination reason based on call data
+   */
+  private determineTerminationReason(callEndReason?: string, duration?: number): TerminationReason {
+    if (!duration || duration < 5) {
+      return TerminationReason.NETWORK_ISSUE;
+    }
+    
+    if (callEndReason) {
+      const reason = callEndReason.toLowerCase();
+      if (reason.includes('timeout')) {
+        return TerminationReason.TIMEOUT;
+      }
+      if (reason.includes('error') || reason.includes('failed')) {
+        return TerminationReason.SYSTEM_ERROR;
+      }
+      if (reason.includes('completed') || reason.includes('success')) {
+        return TerminationReason.COMPLETED_SUCCESSFULLY;
+      }
+    }
+    
+    // Default to user hangup if duration is reasonable
+    return TerminationReason.USER_HANGUP;
   }
   
 }

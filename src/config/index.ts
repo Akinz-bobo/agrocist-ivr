@@ -64,6 +64,15 @@ export const config = {
     },
   },
 
+  // Cloudinary configuration
+  cloudinary: {
+    useCloudinary: process.env.USE_CLOUDINARY === 'true' || false,
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
+    apiKey: process.env.CLOUDINARY_API_KEY || '',
+    apiSecret: process.env.CLOUDINARY_API_SECRET || '',
+    folder: process.env.CLOUDINARY_FOLDER || 'agrocist-ivr/audio',
+  },
+
   // Testing configuration
   testing: {
     // Set to true to use only Say tags (no TTS/Play tags) for testing

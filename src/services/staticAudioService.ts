@@ -1,5 +1,7 @@
 import ttsService, { TTSOptions } from './ttsService';
 import logger from '../utils/logger';
+import cloudinaryService from './cloudinaryService';
+import config from '../config';
 
 export interface StaticAudioTexts {
   welcome: string;
@@ -100,7 +102,19 @@ class StaticAudioService {
           
           // Store with key pattern: language_textKey (e.g., "en_welcome", "yo_processing")
           const cacheKey = `${language}_${key}`;
-          this.staticAudioUrls.set(cacheKey, audioUrl);
+          
+          // If Cloudinary is enabled and we got a local URL, try to ensure it's also on Cloudinary
+          let finalUrl = audioUrl;
+          if (cloudinaryService.isEnabled() && audioUrl.includes(config.webhook.baseUrl)) {
+            // This is a local URL, try to upload to Cloudinary for static content
+            const cloudinaryUrl = await this.uploadStaticToCloudinary(text as string, language, key);
+            if (cloudinaryUrl) {
+              finalUrl = cloudinaryUrl;
+              logger.info(`📤 Uploaded static audio to Cloudinary: ${cacheKey}`);
+            }
+          }
+          
+          this.staticAudioUrls.set(cacheKey, finalUrl);
           
           successCount++;
           logger.info(`✅ Generated ${cacheKey}: ${(text as string).substring(0, 50)}...`);
@@ -135,12 +149,70 @@ class StaticAudioService {
   }
 
   /**
+   * Upload static audio file to Cloudinary
+   */
+  private async uploadStaticToCloudinary(
+    text: string, 
+    language: string, 
+    textKey: string
+  ): Promise<string | null> {
+    try {
+      // Generate a consistent public ID for static content
+      const publicId = cloudinaryService.generatePublicId(`${textKey}-${text}`, language, 'static');
+      
+      // Find the local file that was just created
+      const fs = require('fs');
+      const path = require('path');
+      const crypto = require('crypto');
+      
+      // Recreate the cache key logic from TTSService
+      const cacheKey = crypto.createHash('md5').update(`v3-${text}-${language}-1-1-${config.dsn.audio.bitrate}-${config.dsn.audio.sampleRate}-${config.dsn.audio.speed}`).digest('hex');
+      const audioDir = path.join(process.cwd(), 'public', 'audio');
+      
+      // Look for compressed file first, then WAV
+      const compressedFilepath = path.join(audioDir, `${cacheKey}_compressed.mp3`);
+      const wavFilepath = path.join(audioDir, `${cacheKey}.wav`);
+      
+      let filePath: string | null = null;
+      if (fs.existsSync(compressedFilepath)) {
+        filePath = compressedFilepath;
+      } else if (fs.existsSync(wavFilepath)) {
+        filePath = wavFilepath;
+      }
+      
+      if (!filePath) {
+        logger.warn(`No local file found for static audio: ${language}_${textKey}`);
+        return null;
+      }
+      
+      const cloudinaryResult = await cloudinaryService.uploadAudio(filePath, {
+        publicId,
+        folder: `${config.cloudinary.folder}/static`,
+        overwrite: true
+      });
+      
+      if (cloudinaryResult) {
+        return cloudinaryResult.secureUrl;
+      }
+    } catch (error) {
+      logger.warn(`Failed to upload static audio to Cloudinary: ${language}_${textKey}`, error);
+    }
+    
+    return null;
+  }
+
+  /**
    * Get cache statistics
    */
-  getCacheStats(): { size: number; keys: string[] } {
+  getCacheStats(): { 
+    size: number; 
+    keys: string[];
+    cloudinaryEnabled: boolean;
+  } {
     return {
       size: this.staticAudioUrls.size,
-      keys: Array.from(this.staticAudioUrls.keys())
+      keys: Array.from(this.staticAudioUrls.keys()),
+      cloudinaryEnabled: cloudinaryService.isEnabled()
     };
   }
 }

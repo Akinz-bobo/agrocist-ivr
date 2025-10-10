@@ -3,7 +3,9 @@ import helmet from 'helmet';
 import cors from 'cors';
 import config from './config';
 import logger from './utils/logger';
+import database from './utils/database';
 import voiceRoutes from './routes/voice';
+import analyticsRoutes from './routes/analytics';
 import audioPrewarmService from './services/audioPrewarmService';
 import staticAudioService from './services/staticAudioService';
 
@@ -17,8 +19,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static audio files for TTS
+// Serve static files
 app.use('/audio', express.static('public/audio'));
+app.use('/dashboard', express.static('public'));
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -31,15 +34,24 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/voice', voiceRoutes);
+app.use('/analytics', analyticsRoutes);
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
+  const dbStatus = database.getStatus();
+  const dbHealthy = database.isHealthy();
+  
   res.json({
-    status: 'healthy',
+    status: dbHealthy ? 'healthy' : 'degraded',
     service: 'agrocist-ivr',
     version: '0.1.0',
     timestamp: new Date().toISOString(),
-    environment: config.nodeEnv
+    environment: config.nodeEnv,
+    database: {
+      connected: dbStatus.connected,
+      healthy: dbHealthy,
+      readyState: dbStatus.readyState
+    }
   });
 });
 
@@ -48,10 +60,19 @@ app.get('/', (req, res) => {
   res.json({
     message: 'Agrocist IVR Service',
     version: '0.1.0',
-    description: 'AI-powered livestock farming IVR system',
+    description: 'AI-powered livestock farming IVR system with engagement analytics',
     endpoints: {
       voice: '/voice',
+      analytics: '/analytics',
       health: '/health'
+    },
+    analytics: {
+      overview: '/analytics/overview',
+      patterns: '/analytics/patterns',
+      sessions: '/analytics/sessions',
+      dashboard: '/analytics/dashboard',
+      active: '/analytics/active',
+      export: '/analytics/export'
     }
   });
 });
@@ -76,13 +97,15 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
+  await database.disconnect();
   process.exit(0);
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   logger.info('SIGINT received, shutting down gracefully');
+  await database.disconnect();
   process.exit(0);
 });
 
@@ -95,6 +118,20 @@ const server = app.listen(config.port, async () => {
   logger.info('  POST /voice/menu - Menu selections');
   logger.info('  POST /voice/recording - Voice recordings');
   logger.info('  GET /health - Health check');
+  logger.info('  GET /analytics/dashboard - Engagement dashboard');
+  logger.info('  GET /analytics/overview - Analytics overview');
+  logger.info('  GET /analytics/sessions - Recent sessions');
+  logger.info('  GET /analytics/patterns - Engagement patterns');
+
+  // Connect to database
+  try {
+    logger.info('📊 Connecting to MongoDB...');
+    await database.connect();
+    logger.info('✅ Database connection established');
+  } catch (error) {
+    logger.error('❌ Database connection failed:', error);
+    logger.warn('⚠️ Continuing without database - engagement metrics will not be saved');
+  }
 
   // Pre-generate static audio files for instant responses
   logger.info('🎵 Starting static audio pre-generation in background...');

@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agrocist IVR Analytics Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f7;
+            color: #1d1d1f;
+            line-height: 1.6;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            text-align: center;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e5e5e7;
+        }
+        
+        .card h3 {
+            color: #667eea;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .metric:last-child {
+            border-bottom: none;
+        }
+        
+        .metric-value {
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+        
+        .status-healthy {
+            background-color: #34c759;
+        }
+        
+        .status-degraded {
+            background-color: #ff9500;
+        }
+        
+        .status-error {
+            background-color: #ff3b30;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+        }
+        
+        .error {
+            background-color: #fff2f0;
+            border: 1px solid #ffccc7;
+            color: #d32f2f;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background-color 0.2s;
+        }
+        
+        .refresh-btn:hover {
+            background: #5a6fd8;
+        }
+        
+        .sessions-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        
+        .sessions-table th,
+        .sessions-table td {
+            text-align: left;
+            padding: 0.75rem;
+            border-bottom: 1px solid #e5e5e7;
+        }
+        
+        .sessions-table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        
+        .badge-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .badge-warning {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .badge-error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="container">
+            <h1>📊 Agrocist IVR Analytics Dashboard</h1>
+            <p>Real-time engagement metrics and system insights</p>
+            <button class="refresh-btn" onclick="loadDashboard()">🔄 Refresh Data</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div id="loading" class="loading">
+            <p>Loading dashboard data...</p>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <p>Failed to load dashboard data. Please check your connection and try again.</p>
+        </div>
+
+        <div id="dashboard" style="display: none;">
+            <div class="dashboard-grid">
+                <!-- System Health Card -->
+                <div class="card">
+                    <h3>🔧 System Health</h3>
+                    <div id="system-health">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Today's Metrics Card -->
+                <div class="card">
+                    <h3>📈 Today's Metrics</h3>
+                    <div id="today-metrics">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Active Sessions Card -->
+                <div class="card">
+                    <h3>📞 Active Sessions</h3>
+                    <div id="active-sessions">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Language Distribution Card -->
+                <div class="card">
+                    <h3>🌍 Language Distribution</h3>
+                    <div id="language-distribution">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Engagement Patterns Card -->
+                <div class="card">
+                    <h3>📊 Engagement Patterns</h3>
+                    <div id="engagement-patterns">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Recent Sessions Card -->
+                <div class="card" style="grid-column: 1 / -1;">
+                    <h3>📋 Recent Sessions</h3>
+                    <div id="recent-sessions">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://ddf9cb09d11a.ngrok-free.app/analytics/';
+        
+        async function fetchData(endpoint) {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error(`Failed to fetch ${endpoint}:`, error);
+                throw error;
+            }
+        }
+
+        function formatDuration(seconds) {
+            if (!seconds) return '0s';
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = seconds % 60;
+            return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
+        }
+
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return 'N/A';
+            return new Date(timestamp).toLocaleString();
+        }
+
+        function getBadgeClass(status) {
+            switch (status?.toLowerCase()) {
+                case 'completed-successfully':
+                case 'high':
+                    return 'badge-success';
+                case 'user-hangup':
+                case 'medium':
+                    return 'badge-warning';
+                case 'timeout':
+                case 'system-error':
+                case 'low':
+                    return 'badge-error';
+                default:
+                    return 'badge-warning';
+            }
+        }
+
+        async function loadSystemHealth() {
+            try {
+                const data = await fetchData('/health');
+                const health = data.data;
+                
+                const statusClass = health.database.healthy ? 'status-healthy' : 'status-degraded';
+                const statusText = health.database.healthy ? 'Healthy' : 'Degraded';
+                
+                document.getElementById('system-health').innerHTML = `
+                    <div class="metric">
+                        <span>Database Status</span>
+                        <span><span class="status-indicator ${statusClass}"></span>${statusText}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Database Name</span>
+                        <span class="metric-value">${health.database.name || 'N/A'}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Collections</span>
+                        <span class="metric-value">${health.database.stats?.collections || 0}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Last Updated</span>
+                        <span class="metric-value">${formatTimestamp(health.timestamp)}</span>
+                    </div>
+                `;
+            } catch (error) {
+                document.getElementById('system-health').innerHTML = '<div class="error">Failed to load system health</div>';
+            }
+        }
+
+        async function loadDashboardData() {
+            try {
+                const data = await fetchData('/dashboard');
+                const dashboard = data.data;
+                
+                // Today's metrics
+                const today = dashboard.today;
+                document.getElementById('today-metrics').innerHTML = `
+                    <div class="metric">
+                        <span>Total Calls</span>
+                        <span class="metric-value">${today.totalCalls || 0}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Avg Duration</span>
+                        <span class="metric-value">${formatDuration(Math.round(today.averageDuration || 0))}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Avg Engagement</span>
+                        <span class="metric-value">${Math.round(today.averageEngagementScore || 0)}%</span>
+                    </div>
+                    <div class="metric">
+                        <span>Successful Completions</span>
+                        <span class="metric-value">${today.successfulCompletions || 0}</span>
+                    </div>
+                `;
+
+                // Active sessions
+                const activeSessions = dashboard.activeSessions;
+                document.getElementById('active-sessions').innerHTML = `
+                    <div class="metric">
+                        <span>Currently Active</span>
+                        <span class="metric-value">${activeSessions.count}</span>
+                    </div>
+                    ${activeSessions.sessions.slice(0, 3).map(session => `
+                        <div class="metric">
+                            <span>${session.phoneNumber}</span>
+                            <span class="metric-value">${session.currentState}</span>
+                        </div>
+                    `).join('')}
+                `;
+
+                // Language distribution from patterns
+                const patterns = dashboard.patterns;
+                if (patterns.languagePatterns) {
+                    document.getElementById('language-distribution').innerHTML = patterns.languagePatterns.map(lang => `
+                        <div class="metric">
+                            <span>${lang._id?.toUpperCase() || 'Unknown'}</span>
+                            <span class="metric-value">${lang.count} (Score: ${Math.round(lang.averageEngagementScore || 0)})</span>
+                        </div>
+                    `).join('');
+                }
+
+                // Engagement patterns
+                if (patterns.statePatterns) {
+                    document.getElementById('engagement-patterns').innerHTML = patterns.statePatterns.slice(0, 5).map(state => `
+                        <div class="metric">
+                            <span>${state._id.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                            <span class="metric-value">${state.count}</span>
+                        </div>
+                    `).join('');
+                }
+
+            } catch (error) {
+                document.getElementById('today-metrics').innerHTML = '<div class="error">Failed to load metrics</div>';
+            }
+        }
+
+        async function loadRecentSessions() {
+            try {
+                const data = await fetchData('/sessions?limit=10');
+                const sessions = data.data;
+                
+                if (sessions.length === 0) {
+                    document.getElementById('recent-sessions').innerHTML = '<p>No recent sessions found.</p>';
+                    return;
+                }
+                
+                document.getElementById('recent-sessions').innerHTML = `
+                    <table class="sessions-table">
+                        <thead>
+                            <tr>
+                                <th>Phone Number</th>
+                                <th>Start Time</th>
+                                <th>Duration</th>
+                                <th>Language</th>
+                                <th>Final State</th>
+                                <th>Engagement</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${sessions.map(session => `
+                                <tr>
+                                    <td>${session.phoneNumber}</td>
+                                    <td>${formatTimestamp(session.callStartTime)}</td>
+                                    <td>${formatDuration(session.totalDuration)}</td>
+                                    <td>${session.selectedLanguage?.toUpperCase() || 'N/A'}</td>
+                                    <td>${session.finalState.replace(/-/g, ' ')}</td>
+                                    <td>${session.engagementScore}%</td>
+                                    <td><span class="badge ${getBadgeClass(session.terminationReason)}">${session.terminationReason.replace(/-/g, ' ')}</span></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } catch (error) {
+                document.getElementById('recent-sessions').innerHTML = '<div class="error">Failed to load recent sessions</div>';
+            }
+        }
+
+        async function loadDashboard() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'none';
+            
+            try {
+                await Promise.all([
+                    loadSystemHealth(),
+                    loadDashboardData(),
+                    loadRecentSessions()
+                ]);
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('dashboard').style.display = 'block';
+            } catch (error) {
+                console.error('Failed to load dashboard:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadDashboard, 30000);
+        
+        // Initial load
+        loadDashboard();
+    </script>
+</body>
+</html>

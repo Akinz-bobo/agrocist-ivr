@@ -6,6 +6,7 @@ import FormData from 'form-data';
 import { execSync } from 'child_process';
 import config from '../config';
 import logger from '../utils/logger';
+import cloudinaryService from './cloudinaryService';
 
 export interface TTSVoiceConfig {
   provider: 'dsn';
@@ -24,6 +25,7 @@ export interface TTSOptions {
 
 class TTSService {
   private audioCache: Map<string, string> = new Map();
+  private cloudinaryCache: Map<string, string> = new Map(); // Cache for Cloudinary URLs
   private audioDir: string;
   private dsnBaseUrl: string;
   private dsnUsername: string;
@@ -98,7 +100,7 @@ class TTSService {
 
   /**
    * Generate speech from text using DSN TTS API
-   * Uses persistent file-based caching to avoid regenerating audio
+   * Uses persistent file-based caching and Cloudinary (if enabled) to avoid regenerating audio
    */
   async generateSpeech(text: string, options: TTSOptions): Promise<string> {
     const cacheKey = this.generateCacheKey(text, options);
@@ -109,6 +111,14 @@ class TTSService {
       return this.audioCache.get(cacheKey)!;
     }
 
+    // Check Cloudinary cache if enabled
+    if (cloudinaryService.isEnabled() && this.cloudinaryCache.has(cacheKey)) {
+      const cloudinaryUrl = this.cloudinaryCache.get(cacheKey)!;
+      logger.debug(`Using Cloudinary cached audio for: ${text.substring(0, 50)}...`);
+      this.audioCache.set(cacheKey, cloudinaryUrl);
+      return cloudinaryUrl;
+    }
+
     // Check file-based cache (persistent across restarts)
     // Look for compressed file first, then fallback to WAV
     const compressedFilename = `${cacheKey}_compressed.mp3`;
@@ -116,6 +126,20 @@ class TTSService {
     const wavFilename = `${cacheKey}.wav`;
     const wavFilepath = path.join(this.audioDir, wavFilename);
 
+    // If file exists locally but we're using Cloudinary, try to upload and return Cloudinary URL
+    if (cloudinaryService.isEnabled()) {
+      if (fs.existsSync(compressedFilepath)) {
+        const cloudinaryUrl = await this.uploadToCloudinaryIfNeeded(compressedFilepath, cacheKey, text, options);
+        if (cloudinaryUrl) return cloudinaryUrl;
+      }
+      
+      if (fs.existsSync(wavFilepath)) {
+        const cloudinaryUrl = await this.uploadToCloudinaryIfNeeded(wavFilepath, cacheKey, text, options);
+        if (cloudinaryUrl) return cloudinaryUrl;
+      }
+    }
+
+    // Fallback to local files if Cloudinary is disabled or upload failed
     if (fs.existsSync(compressedFilepath)) {
       const publicUrl = `${config.webhook.baseUrl}/audio/${compressedFilename}`;
       logger.debug(`Using cached compressed audio file for: ${text.substring(0, 50)}...`);
@@ -220,9 +244,28 @@ class TTSService {
           logger.info(`Audio file ${path.basename(finalFilepath)} is optimal size (${finalSize} bytes)`);
         }
 
-        // Return HTTPS URL to the saved audio file
+        // Upload to Cloudinary if enabled
+        if (cloudinaryService.isEnabled()) {
+          const publicId = cloudinaryService.generatePublicId(text, options.language, 'dynamic');
+          const cloudinaryResult = await cloudinaryService.uploadAudio(finalFilepath, {
+            publicId,
+            folder: config.cloudinary.folder,
+            overwrite: true
+          });
+
+          if (cloudinaryResult) {
+            // Cache Cloudinary URL
+            this.cloudinaryCache.set(this.generateCacheKey(text, options), cloudinaryResult.secureUrl);
+            logger.info(`Generated Cloudinary URL for TTS audio: ${cloudinaryResult.secureUrl} (${finalSize} bytes)`);
+            return cloudinaryResult.secureUrl;
+          } else {
+            logger.warn('Cloudinary upload failed, falling back to local URL');
+          }
+        }
+
+        // Return HTTPS URL to the saved audio file (fallback)
         const publicUrl = `${config.webhook.baseUrl}/audio/${path.basename(finalFilepath)}`;
-        logger.info(`Generated HTTPS URL for TTS audio: ${publicUrl} (${finalSize} bytes)`);
+        logger.info(`Generated local URL for TTS audio: ${publicUrl} (${finalSize} bytes)`);
         return publicUrl;
       } catch (fsError) {
         logger.warn('Could not save audio file to disk, falling back to data URL');
@@ -341,20 +384,65 @@ class TTSService {
   }
 
   /**
+   * Upload existing file to Cloudinary if needed and return URL
+   */
+  private async uploadToCloudinaryIfNeeded(
+    filePath: string, 
+    cacheKey: string, 
+    text: string, 
+    options: TTSOptions
+  ): Promise<string | null> {
+    try {
+      const publicId = cloudinaryService.generatePublicId(text, options.language, 'dynamic');
+      const cloudinaryResult = await cloudinaryService.uploadAudio(filePath, {
+        publicId,
+        folder: config.cloudinary.folder,
+        overwrite: true
+      });
+
+      if (cloudinaryResult) {
+        // Cache both in-memory and Cloudinary cache
+        this.cloudinaryCache.set(cacheKey, cloudinaryResult.secureUrl);
+        this.audioCache.set(cacheKey, cloudinaryResult.secureUrl);
+        
+        const fileSize = fs.statSync(filePath).size;
+        logger.info(`Uploaded existing file to Cloudinary: ${cloudinaryResult.secureUrl} (${fileSize} bytes)`);
+        return cloudinaryResult.secureUrl;
+      }
+    } catch (error) {
+      logger.warn('Failed to upload existing file to Cloudinary:', error);
+    }
+    
+    return null;
+  }
+
+  /**
    * Clear audio cache
    */
   clearCache(): void {
     this.audioCache.clear();
+    this.cloudinaryCache.clear();
     logger.info('TTS cache cleared');
   }
 
   /**
    * Get cache statistics
    */
-  getCacheStats(): { size: number; keys: string[] } {
+  getCacheStats(): { 
+    local: { size: number; keys: string[] };
+    cloudinary: { size: number; keys: string[] };
+    cloudinaryEnabled: boolean;
+  } {
     return {
-      size: this.audioCache.size,
-      keys: Array.from(this.audioCache.keys())
+      local: {
+        size: this.audioCache.size,
+        keys: Array.from(this.audioCache.keys())
+      },
+      cloudinary: {
+        size: this.cloudinaryCache.size,
+        keys: Array.from(this.cloudinaryCache.keys())
+      },
+      cloudinaryEnabled: cloudinaryService.isEnabled()
     };
   }
 

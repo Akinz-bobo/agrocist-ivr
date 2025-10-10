@@ -53,6 +53,7 @@ export interface IVRResponse {
   response: string;
   nextAction?: 'menu' | 'record' | 'transfer' | 'end';
   transferNumber?: string;
+  confidence?: number;
 }
 
 export interface LivestockQuery {
