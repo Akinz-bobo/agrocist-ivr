@@ -767,7 +767,7 @@ class VoiceController {
         const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${audioTag}
-  <GetDigits timeout="10" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai?language=${language}">
+  <GetDigits timeout="2" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai?language=${language}">
     ${postAIAudio}
   </GetDigits>
   ${noInputMessage}

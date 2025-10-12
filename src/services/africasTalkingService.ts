@@ -137,7 +137,7 @@ class AfricasTalkingService {
       if (audioUrl) {
         return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+  <Record maxLength="25" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
     <Play url="${audioUrl}"/>
   </Record>
 </Response>`;
@@ -248,7 +248,7 @@ class AfricasTalkingService {
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <GetDigits timeout="10" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai">
+  <GetDigits timeout="2" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai">
     ${playTag}
   </GetDigits>
   ${playTag}
@@ -262,7 +262,7 @@ class AfricasTalkingService {
     const welcomeXML = await this.generateMultiLanguageWelcome();
 
     // Put audio INSIDE GetDigits with proper formatting
-    return `<GetDigits timeout="10" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language">
+    return `<GetDigits timeout="2" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language">
 ${welcomeXML}
   </GetDigits>`;
   }

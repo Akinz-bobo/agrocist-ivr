@@ -103,14 +103,27 @@ class StaticAudioService {
           // Store with key pattern: language_textKey (e.g., "en_welcome", "yo_processing")
           const cacheKey = `${language}_${key}`;
           
-          // If Cloudinary is enabled and we got a local URL, try to ensure it's also on Cloudinary
+          // If Cloudinary is enabled, check for existing static files with proper naming
           let finalUrl = audioUrl;
-          if (cloudinaryService.isEnabled() && audioUrl.includes(config.webhook.baseUrl)) {
-            // This is a local URL, try to upload to Cloudinary for static content
-            const cloudinaryUrl = await this.uploadStaticToCloudinary(text as string, language, key);
-            if (cloudinaryUrl) {
-              finalUrl = cloudinaryUrl;
-              logger.info(`📤 Uploaded static audio to Cloudinary: ${cacheKey}`);
+          if (cloudinaryService.isEnabled()) {
+            // Use the proper static naming pattern: static_welcome_en, static_processing_yo, etc.
+            const staticPublicId = `static_${key}_${language}`;
+            const existsOnCloudinary = await cloudinaryService.fileExists(staticPublicId);
+            
+            if (existsOnCloudinary) {
+              // File already exists, use the existing URL
+              const existingCloudinaryUrl = cloudinaryService.getOptimizedUrl(staticPublicId);
+              if (existingCloudinaryUrl) {
+                finalUrl = existingCloudinaryUrl;
+                logger.info(`♻️ Using existing static Cloudinary file: ${cacheKey}`);
+              }
+            } else {
+              // File doesn't exist, upload it with proper static naming
+              const cloudinaryUrl = await this.uploadStaticToCloudinary(text as string, language, key);
+              if (cloudinaryUrl) {
+                finalUrl = cloudinaryUrl;
+                logger.info(`📤 Uploaded new static audio to Cloudinary: ${cacheKey}`);
+              }
             }
           }
           
@@ -149,7 +162,7 @@ class StaticAudioService {
   }
 
   /**
-   * Upload static audio file to Cloudinary
+   * Upload static audio file to Cloudinary directly from TTS buffer
    */
   private async uploadStaticToCloudinary(
     text: string, 
@@ -157,41 +170,23 @@ class StaticAudioService {
     textKey: string
   ): Promise<string | null> {
     try {
-      // Generate a consistent public ID for static content
-      const publicId = cloudinaryService.generatePublicId(`${textKey}-${text}`, language, 'static');
+      // Use simple static naming pattern: static_welcome_en, static_processing_yo, etc.
+      const publicId = `static_${textKey}_${language}`;
       
-      // Find the local file that was just created
-      const fs = require('fs');
-      const path = require('path');
-      const crypto = require('crypto');
-      
-      // Recreate the cache key logic from TTSService
-      const cacheKey = crypto.createHash('md5').update(`v3-${text}-${language}-1-1-${config.dsn.audio.bitrate}-${config.dsn.audio.sampleRate}-${config.dsn.audio.speed}`).digest('hex');
-      const audioDir = path.join(process.cwd(), 'public', 'audio');
-      
-      // Look for compressed file first, then WAV
-      const compressedFilepath = path.join(audioDir, `${cacheKey}_compressed.mp3`);
-      const wavFilepath = path.join(audioDir, `${cacheKey}.wav`);
-      
-      let filePath: string | null = null;
-      if (fs.existsSync(compressedFilepath)) {
-        filePath = compressedFilepath;
-      } else if (fs.existsSync(wavFilepath)) {
-        filePath = wavFilepath;
-      }
-      
-      if (!filePath) {
-        logger.warn(`No local file found for static audio: ${language}_${textKey}`);
+      // Generate TTS audio buffer directly (don't save to disk)
+      const audioBuffer = await this.generateTTSBuffer(text, language as 'en' | 'yo' | 'ha' | 'ig');
+      if (!audioBuffer) {
+        logger.warn(`Failed to generate TTS buffer for static audio: ${language}_${textKey}`);
         return null;
       }
       
-      const cloudinaryResult = await cloudinaryService.uploadAudio(filePath, {
+      const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(audioBuffer, {
         publicId,
-        folder: `${config.cloudinary.folder}/static`,
-        overwrite: true
+        folder: `${config.cloudinary.folder}/static`
       });
       
       if (cloudinaryResult) {
+        logger.info(`📤 Uploaded static audio directly to Cloudinary: ${cloudinaryResult.secureUrl}`);
         return cloudinaryResult.secureUrl;
       }
     } catch (error) {
@@ -199,6 +194,63 @@ class StaticAudioService {
     }
     
     return null;
+  }
+
+  /**
+   * Generate TTS audio buffer without saving to disk
+   */
+  private async generateTTSBuffer(text: string, language: 'en' | 'yo' | 'ha' | 'ig'): Promise<Buffer | null> {
+    try {
+      const axios = require('axios');
+      const FormData = require('form-data');
+      
+      // Reuse TTS authentication and generation logic
+      const ttsService = (await import('./ttsService')).default;
+      const token = await ttsService.authenticateDSN();
+      
+      if (!token) {
+        throw new Error('Failed to authenticate with DSN API');
+      }
+
+      // Voice configurations
+      const voiceConfigs: Record<string, any> = {
+        en: { voiceId: 'lucy', language: 'en' },
+        yo: { voiceId: 'sade', language: 'yo' },
+        ha: { voiceId: 'zainab', language: 'ha' },
+        ig: { voiceId: 'amara', language: 'ig' }
+      };
+
+      const voiceConfig = voiceConfigs[language];
+      if (!voiceConfig) {
+        throw new Error(`No voice configuration found for language: ${language}`);
+      }
+
+      // Create form data for the request
+      const formData = new FormData();
+      formData.append('text', text);
+      formData.append('language', voiceConfig.language);
+      formData.append('voice', voiceConfig.voiceId);
+      formData.append('format', 'mp3');
+      formData.append('quality', 'medium');
+      formData.append('encoding', 'mp3_64');
+
+      // Make request to DSN TTS API
+      const response = await axios({
+        method: 'POST',
+        url: `${config.dsn.baseUrl}/api/v1/ai/spitch/text-to-speech`,
+        data: formData,
+        headers: {
+          ...formData.getHeaders(),
+          'Authorization': `Bearer ${token}`
+        },
+        responseType: 'arraybuffer'
+      });
+
+      return Buffer.from(response.data);
+    } catch (error) {
+      logger.error('Error generating TTS buffer:', error);
+      return null;
+    }
   }
 
   /**

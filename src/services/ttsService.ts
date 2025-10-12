@@ -111,47 +111,12 @@ class TTSService {
       return this.audioCache.get(cacheKey)!;
     }
 
-    // Check Cloudinary cache if enabled
+    // Check Cloudinary cache if enabled (skip file system checks entirely)
     if (cloudinaryService.isEnabled() && this.cloudinaryCache.has(cacheKey)) {
       const cloudinaryUrl = this.cloudinaryCache.get(cacheKey)!;
       logger.debug(`Using Cloudinary cached audio for: ${text.substring(0, 50)}...`);
       this.audioCache.set(cacheKey, cloudinaryUrl);
       return cloudinaryUrl;
-    }
-
-    // Check file-based cache (persistent across restarts)
-    // Look for compressed file first, then fallback to WAV
-    const compressedFilename = `${cacheKey}_compressed.mp3`;
-    const compressedFilepath = path.join(this.audioDir, compressedFilename);
-    const wavFilename = `${cacheKey}.wav`;
-    const wavFilepath = path.join(this.audioDir, wavFilename);
-
-    // If file exists locally but we're using Cloudinary, try to upload and return Cloudinary URL
-    if (cloudinaryService.isEnabled()) {
-      if (fs.existsSync(compressedFilepath)) {
-        const cloudinaryUrl = await this.uploadToCloudinaryIfNeeded(compressedFilepath, cacheKey, text, options);
-        if (cloudinaryUrl) return cloudinaryUrl;
-      }
-      
-      if (fs.existsSync(wavFilepath)) {
-        const cloudinaryUrl = await this.uploadToCloudinaryIfNeeded(wavFilepath, cacheKey, text, options);
-        if (cloudinaryUrl) return cloudinaryUrl;
-      }
-    }
-
-    // Fallback to local files if Cloudinary is disabled or upload failed
-    if (fs.existsSync(compressedFilepath)) {
-      const publicUrl = `${config.webhook.baseUrl}/audio/${compressedFilename}`;
-      logger.debug(`Using cached compressed audio file for: ${text.substring(0, 50)}...`);
-      this.audioCache.set(cacheKey, publicUrl);
-      return publicUrl;
-    }
-
-    if (fs.existsSync(wavFilepath)) {
-      const publicUrl = `${config.webhook.baseUrl}/audio/${wavFilename}`;
-      logger.debug(`Using cached WAV audio file for: ${text.substring(0, 50)}...`);
-      this.audioCache.set(cacheKey, publicUrl);
-      return publicUrl;
     }
 
     try {
@@ -208,73 +173,36 @@ class TTSService {
         responseType: 'arraybuffer' // Expect MP3 binary data
       });
 
-      // Save and compress the audio file
+      // Get audio buffer and upload directly to Cloudinary
       const buffer = Buffer.from(response.data);
-      const filename = `${this.generateCacheKey(text, options)}.wav`;
-      const filepath = path.join(this.audioDir, filename);
+      const originalSize = buffer.length;
+      logger.info(`Received DSN TTS audio buffer: ${originalSize} bytes`);
 
-      // Save to file system and return public URL
-      try {
-        fs.writeFileSync(filepath, buffer);
-        const originalSize = buffer.length;
-        logger.info(`Saved DSN TTS audio: ${filename} (${originalSize} bytes)`);
+      // Upload directly to Cloudinary if enabled
+      if (cloudinaryService.isEnabled()) {
+        // For dynamic TTS, always upload with unique timestamp for each request
+        const publicId = cloudinaryService.generatePublicId(text, options.language, 'dynamic');
+        
+        const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(buffer, {
+          publicId,
+          folder: config.cloudinary.folder
+        });
 
-        // Compress audio if ffmpeg is available
-        let finalFilepath = filepath;
-        let finalSize = originalSize;
-
-        if (this.ffmpegAvailable) {
-          try {
-            const compressedFilepath = await this.compressAudio(filepath);
-            if (compressedFilepath) {
-              finalFilepath = compressedFilepath;
-              finalSize = fs.statSync(compressedFilepath).size;
-              const reduction = ((1 - finalSize / originalSize) * 100).toFixed(1);
-              logger.info(`Compressed ${filename}: ${originalSize} → ${finalSize} bytes (${reduction}% reduction)`);
-            }
-          } catch (compressError) {
-            logger.warn(`Audio compression failed for ${filename}, using original:`, compressError);
-          }
-        }
-
-        // Monitor file sizes for playback optimization
-        if (finalSize > 50000) {
-          logger.warn(`Audio file ${path.basename(finalFilepath)} is large (${finalSize} bytes), may cause playback issues`);
+        if (cloudinaryResult) {
+          // Cache Cloudinary URL
+          this.cloudinaryCache.set(this.generateCacheKey(text, options), cloudinaryResult.secureUrl);
+          logger.info(`📤 Uploaded TTS audio directly to Cloudinary: ${cloudinaryResult.secureUrl} (${originalSize} bytes)`);
+          return cloudinaryResult.secureUrl;
         } else {
-          logger.info(`Audio file ${path.basename(finalFilepath)} is optimal size (${finalSize} bytes)`);
+          logger.warn('Cloudinary upload failed, falling back to data URL');
         }
-
-        // Upload to Cloudinary if enabled
-        if (cloudinaryService.isEnabled()) {
-          const publicId = cloudinaryService.generatePublicId(text, options.language, 'dynamic');
-          const cloudinaryResult = await cloudinaryService.uploadAudio(finalFilepath, {
-            publicId,
-            folder: config.cloudinary.folder,
-            overwrite: true
-          });
-
-          if (cloudinaryResult) {
-            // Cache Cloudinary URL
-            this.cloudinaryCache.set(this.generateCacheKey(text, options), cloudinaryResult.secureUrl);
-            logger.info(`Generated Cloudinary URL for TTS audio: ${cloudinaryResult.secureUrl} (${finalSize} bytes)`);
-            return cloudinaryResult.secureUrl;
-          } else {
-            logger.warn('Cloudinary upload failed, falling back to local URL');
-          }
-        }
-
-        // Return HTTPS URL to the saved audio file (fallback)
-        const publicUrl = `${config.webhook.baseUrl}/audio/${path.basename(finalFilepath)}`;
-        logger.info(`Generated local URL for TTS audio: ${publicUrl} (${finalSize} bytes)`);
-        return publicUrl;
-      } catch (fsError) {
-        logger.warn('Could not save audio file to disk, falling back to data URL');
-        // Fallback to data URL if file cannot be saved
-        const base64 = buffer.toString('base64');
-        const dataUrl = `data:audio/mp3;base64,${base64}`;
-        logger.info(`Generated fallback data URL for TTS audio (${buffer.length} bytes)`);
-        return dataUrl;
       }
+
+      // Fallback to data URL if Cloudinary is disabled or upload failed
+      const base64 = buffer.toString('base64');
+      const dataUrl = `data:audio/mp3;base64,${base64}`;
+      logger.info(`Generated data URL for TTS audio (${buffer.length} bytes)`);
+      return dataUrl;
     } catch (error: any) {
       logger.error('DSN TTS API error:', error);
       throw new Error(`DSN TTS failed: ${error.response?.data || error.message}`);
@@ -317,7 +245,7 @@ class TTSService {
   /**
    * Authenticate with DSN API and get Bearer token
    */
-  private async authenticateDSN(): Promise<string | null> {
+  async authenticateDSN(): Promise<string | null> {
     try {
       // Check if we have a valid token that's not expired
       if (this.authToken && this.tokenExpiry && new Date() < this.tokenExpiry) {

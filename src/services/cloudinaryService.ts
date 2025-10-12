@@ -197,6 +197,37 @@ class CloudinaryService {
   }
 
   /**
+   * Check if a file exists on Cloudinary
+   */
+  async fileExists(publicId: string): Promise<boolean> {
+    if (!this.isEnabled()) {
+      return false;
+    }
+
+    try {
+      // Try video first (most common for audio files), then raw if that fails
+      await cloudinary.api.resource(publicId, { resource_type: 'video' });
+      return true;
+    } catch (error: any) {
+      // If error is 404 (not found), try checking as raw resource type
+      if (error.http_code === 404) {
+        try {
+          await cloudinary.api.resource(publicId, { resource_type: 'raw' });
+          return true;
+        } catch (rawError: any) {
+          if (rawError.http_code === 404) {
+            return false;
+          }
+          logger.warn(`Error checking Cloudinary file existence for ${publicId} as raw:`, rawError);
+          return false;
+        }
+      }
+      logger.warn(`Error checking Cloudinary file existence for ${publicId}:`, error);
+      return false;
+    }
+  }
+
+  /**
    * Get optimized Cloudinary URL with transformations
    */
   getOptimizedUrl(
@@ -240,13 +271,25 @@ class CloudinaryService {
   }
 
   /**
-   * Generate a unique public ID for audio files
+   * Generate a unique public ID for audio files using the same cache key logic as local files
    */
-  generatePublicId(text: string, language: string, type: 'static' | 'dynamic' = 'dynamic'): string {
+  generatePublicId(text: string, language: string, type: 'static' | 'dynamic' = 'dynamic', textKey?: string): string {
     const crypto = require('crypto');
-    const hash = crypto.createHash('md5').update(`${text}-${language}`).digest('hex').substring(0, 8);
-    const timestamp = type === 'static' ? '' : `-${Date.now()}`;
-    return `${type}-${language}-${hash}${timestamp}`;
+    const config = require('../config').default;
+    
+    // Use the same cache key logic as TTSService for consistency
+    const content = `v3-${text}-${language}-1-1-${config.dsn.audio.bitrate}-${config.dsn.audio.sampleRate}-${config.dsn.audio.speed}`;
+    const hash = crypto.createHash('md5').update(content).digest('hex');
+    
+    // For static files, use descriptive naming: static_welcome_en, static_processing_yo, etc.
+    if (type === 'static' && textKey) {
+      return `static_${textKey}_${language}`;
+    } else if (type === 'static') {
+      // Fallback for static files without textKey
+      return `static-${language}-${hash}`;
+    } else {
+      return `dynamic-${language}-${hash.substring(0, 8)}-${Date.now()}`;
+    }
   }
 
   /**
