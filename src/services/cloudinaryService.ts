@@ -216,12 +216,13 @@ class CloudinaryService {
           return true;
         } catch (rawError: any) {
           if (rawError.http_code === 404) {
-            return false;
+            return false; // File doesn't exist - this is expected, no need to log
           }
           logger.warn(`Error checking Cloudinary file existence for ${publicId} as raw:`, rawError);
           return false;
         }
       }
+      // Only log non-404 errors as these are unexpected
       logger.warn(`Error checking Cloudinary file existence for ${publicId}:`, error);
       return false;
     }
