@@ -333,8 +333,8 @@ class VoiceController {
         logger.warn('Failed to track recording states:', error);
       }
 
-      // Hybrid approach: immediate processing message + background AI processing
-      logger.info(`🚀 Starting hybrid processing for session: ${sessionId}`);
+      // Optimized approach: immediate processing + extended processing message
+      logger.info(`🚀 Starting optimized processing for session: ${sessionId}`);
       
       // Start background processing immediately (don't await)
       this.processRecordingInBackground(sessionId, recording, sessionLanguage).catch(err => {
@@ -342,12 +342,14 @@ class VoiceController {
         sessionManager.updateSessionContext(sessionId, { processingError: true });
       });
 
-      // Respond IMMEDIATELY with processing message and redirect
+      // Respond with extended processing message to give AI time to complete
       const processingAudio = await this.generateStaticAudioSay('processing', sessionLanguage);
+      const waitAudio = await this.generateStaticAudioSay('wait', sessionLanguage);
       
       const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${processingAudio}
+  ${waitAudio}
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
 
@@ -650,14 +652,28 @@ class VoiceController {
       const truncatedResponse = this.truncateForAudio(cleanedResponse);
       logger.info(`📝 Truncated AI response from ${cleanedResponse.length} to ${truncatedResponse.length} characters`);
 
-      // 5. Store AI interaction and mark as ready (no TTS pre-generation)
+      // 5. Pre-generate TTS audio during processing to eliminate playback delay
+      logger.info(`⚡ Pre-generating TTS audio for session ${sessionId}`);
+      const ttsStartTime = Date.now();
+      let preGeneratedAudioUrl: string | null = null;
+      
+      try {
+        preGeneratedAudioUrl = await this.generateLanguageSpecificSay(truncatedResponse, language);
+        const ttsTime = Date.now() - ttsStartTime;
+        logger.info(`⚡ TTS pre-generation completed in ${ttsTime}ms`);
+      } catch (error) {
+        logger.warn(`TTS pre-generation failed for session ${sessionId}:`, error);
+      }
+
+      // 6. Store AI interaction and mark as ready with pre-generated audio
       sessionManager.addAIInteraction(sessionId, farmerText, truncatedResponse, 0.9, 'veterinary');
       sessionManager.updateSessionContext(sessionId, {
         aiResponse: truncatedResponse,
+        preGeneratedAudio: preGeneratedAudioUrl,
         aiReady: true
       });
 
-      // 6. Track AI interaction in engagement metrics
+      // 7. Track AI interaction in engagement metrics
       try {
         const session = sessionManager.getSession(sessionId);
         const engagementSessionId = session?.context?.engagementSessionId;
@@ -741,6 +757,7 @@ class VoiceController {
       if (session.context.aiReady && session.context.aiResponse) {
         logger.info(`✅ AI response ready for session ${sessionId}`);
         const aiResponse = session.context.aiResponse;
+        const preGeneratedAudio = session.context.preGeneratedAudio;
 
         // Track state transition to AI response
         try {
@@ -752,8 +769,15 @@ class VoiceController {
           logger.warn('Failed to track AI response state:', error);
         }
 
-        // Generate TTS now (when we know we need it)
-        const audioTag = await this.generateLanguageSpecificSay(aiResponse, language);
+        // Use pre-generated audio if available, otherwise generate now
+        let audioTag: string;
+        if (preGeneratedAudio) {
+          logger.info(`🎵 Using pre-generated audio for session ${sessionId}`);
+          audioTag = preGeneratedAudio;
+        } else {
+          logger.info(`🎵 Generating audio on-demand for session ${sessionId}`);
+          audioTag = await this.generateLanguageSpecificSay(aiResponse, language);
+        }
         
         const postAIPrompt = language === 'en' ? 
           "Press 1 for another question or press 0 to end the call." :
@@ -783,11 +807,11 @@ class VoiceController {
         return;
       }
 
-      // If not ready yet, wait and redirect back
-      logger.info(`⏳ AI still processing for session ${sessionId}, redirecting...`);
+      // If not ready yet, give a shorter wait and redirect back quickly
+      logger.info(`⏳ AI still processing for session ${sessionId}, redirecting quickly...`);
       const redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.generateStaticAudioSay('wait', language)}
+  <Pause length="1"/>
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
 

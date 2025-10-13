@@ -155,11 +155,10 @@ class TTSService {
       formData.append('language', voiceConfig.language);
       formData.append('voice', voiceConfig.voiceId);
       
-      // Add audio optimization settings (if supported by DSN API)
+      // Use EXACT same settings as static audio generation for consistent quality
       formData.append('format', 'mp3');
-      // Note: DSN API may not support all these parameters, but we'll try them
-      formData.append('quality', 'medium'); // Try different quality setting
-      formData.append('encoding', 'mp3_64'); // Try lower bitrate encoding
+      formData.append('quality', 'medium');
+      formData.append('encoding', 'mp3_64');
 
       // Make request to DSN TTS API with Bearer token and timeout
       const response = await axios({
