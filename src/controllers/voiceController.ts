@@ -493,14 +493,32 @@ class VoiceController {
   
   
   private cleanAIResponse(response: string): string {
-    // Remove markdown formatting, stars, and clean up for audio
+    // Complete text processing for audio delivery
     return response
+      // Remove markdown formatting
       .replace(/\*\*/g, '') // Remove bold markdown
       .replace(/\*/g, '')   // Remove italic markdown
-      .replace(/##/g, '')   // Remove heading markdown
-      .replace(/#/g, '')    // Remove heading markdown
-      .replace(/\n/g, '. ') // Replace newlines with periods
+      .replace(/##\s*/g, '') // Remove heading markdown
+      .replace(/#\s*/g, '')  // Remove heading markdown
+      
+      // Handle measurements and abbreviations
+      .replace(/Dr\./g, 'Doctor')
+      .replace(/(\d+)\s*mg/g, '$1 milligrams')
+      .replace(/(\d+)\s*ml/g, '$1 milliliters')
+      .replace(/(\d+)\s*kg/g, '$1 kilograms')
+      .replace(/(\d+)°C/g, '$1 degrees Celsius')
+      
+      // Clean up line breaks and spacing
+      .replace(/\n\s*[\d\-\*]\.\s*/g, '. ') // Convert numbered/bulleted lists to sentences
+      .replace(/\n\s*[\-\*]\s*/g, '. ') // Convert bullet points to sentences
+      .replace(/\n\s*\n/g, '. ') // Replace double newlines with period
+      .replace(/\n/g, ' ') // Replace single newlines with space
+      
+      // Clean up punctuation
+      .replace(/\.\s*\./g, '.') // Remove double periods
+      .replace(/\s*:\s*/g, ': ') // Clean up colons
       .replace(/\s+/g, ' ') // Remove extra spaces
+      .replace(/\s+\./g, '.') // Remove spaces before periods
       .trim();
   }
 

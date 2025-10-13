@@ -59,7 +59,7 @@ class AIService {
       logger.info(`⚡ AI processed veterinary query in ${aiTime}ms with confidence: ${confidence}`);
 
       return {
-        response: this.formatForAudio(response),
+        response: response, // Don't format here - let voiceController handle all text processing
         nextAction: confidence < config.ai.confidenceThreshold ? 'transfer' : 'menu'
       };
 
@@ -99,7 +99,7 @@ class AIService {
       }
       
       return {
-        response: this.formatForAudio(response),
+        response: response, // Don't format here - let voiceController handle all text processing
         nextAction: 'menu'
       };
       
@@ -297,8 +297,7 @@ If it's about purchasing, redirect to product services.`;
       .replace(/(\d+)ml/g, '$1 milliliters')
       .replace(/(\d+)kg/g, '$1 kilograms')
       .replace(/(\d+)°C/g, '$1 degrees Celsius')
-      .replace(/\n/g, '. ')
-      .replace(/\s+/g, ' ')
+      .replace(/\s+/g, ' ') // Just clean up spaces, let voiceController handle newlines
       .trim();
   }
   
@@ -399,7 +398,7 @@ If it's about purchasing, redirect to product services.`;
     const randomResponse = responses[Math.floor(Math.random() * responses.length)];
     
     return {
-      response: this.formatForAudio(randomResponse || 'Please consult with a veterinarian for proper diagnosis'),
+      response: randomResponse || 'Please consult with a veterinarian for proper diagnosis', // Don't format here
       nextAction: 'menu'
     };
   }
