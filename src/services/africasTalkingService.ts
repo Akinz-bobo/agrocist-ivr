@@ -335,8 +335,7 @@ ${welcomeXML}
       // Force English only if testing flag is set
       const actualLanguage = config.testing.forceEnglishOnly ? 'en' : language;
       
-      const options: TTSOptions = { language: actualLanguage };
-      const result = await ttsService.generateSpeech(text, options);
+      const result = await ttsService.generateAIAudio(text, actualLanguage);
       // TTS succeeded, mark as available
       this.ttsAvailable = true;
       return result;
