@@ -161,7 +161,7 @@ class TTSService {
       formData.append('quality', 'medium'); // Try different quality setting
       formData.append('encoding', 'mp3_64'); // Try lower bitrate encoding
 
-      // Make request to DSN TTS API with Bearer token
+      // Make request to DSN TTS API with Bearer token and timeout
       const response = await axios({
         method: 'POST',
         url: `${this.dsnBaseUrl}/api/v1/ai/spitch/text-to-speech`,
@@ -170,7 +170,8 @@ class TTSService {
           ...formData.getHeaders(),
           'Authorization': `Bearer ${token}`
         },
-        responseType: 'arraybuffer' // Expect MP3 binary data
+        responseType: 'arraybuffer', // Expect MP3 binary data
+        timeout: 30000 // 30 second timeout
       });
 
       // Get audio buffer and upload directly to Cloudinary
@@ -204,8 +205,17 @@ class TTSService {
       logger.info(`Generated data URL for TTS audio (${buffer.length} bytes)`);
       return dataUrl;
     } catch (error: any) {
-      logger.error('DSN TTS API error:', error);
-      throw new Error(`DSN TTS failed: ${error.response?.data || error.message}`);
+      // Handle common timeout and connection errors concisely
+      if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        logger.warn(`DSN TTS API timeout for ${options.language} audio generation`);
+      } else if (error.response?.status === 504) {
+        logger.warn(`DSN TTS API gateway timeout (504) for ${options.language} audio`);
+      } else if (error.response?.status >= 500) {
+        logger.warn(`DSN TTS API server error (${error.response.status}) for ${options.language} audio`);
+      } else {
+        logger.warn(`DSN TTS failed for ${options.language}:`, error.message || 'Unknown error');
+      }
+      throw new Error(`DSN TTS failed: ${error.message || 'Unknown error'}`);
     }
   }
 
@@ -254,7 +264,7 @@ class TTSService {
 
       logger.info('Authenticating with DSN API...');
       
-      // Use correct DSN authentication endpoint
+      // Use correct DSN authentication endpoint with timeout
       const authResponse = await axios({
         method: 'POST',
         url: `${this.dsnBaseUrl}/api/v1/auth/login/json`,
@@ -264,7 +274,8 @@ class TTSService {
         data: {
           identifier: this.dsnUsername,
           password: this.dsnPassword
-        }
+        },
+        timeout: 15000 // 15 second timeout
       });
 
       if (authResponse.data && authResponse.data.access_token) {
@@ -275,12 +286,22 @@ class TTSService {
         logger.info(`DSN authentication successful, token expires: ${this.tokenExpiry}`);
         return this.authToken;
       } else {
-        logger.error('DSN authentication failed: No access_token in response', authResponse.data);
+        logger.warn('DSN authentication failed: No access_token in response');
         return null;
       }
 
     } catch (error: any) {
-      logger.error('DSN authentication error:', error.response?.data || error.message);
+      // Handle common timeout and connection errors concisely
+      if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        logger.warn('DSN API authentication timeout');
+      } else if (error.response?.status === 504) {
+        logger.warn('DSN API authentication gateway timeout (504)');
+      } else if (error.response?.status >= 500) {
+        logger.warn(`DSN API authentication server error (${error.response.status})`);
+      } else {
+        logger.warn('DSN authentication failed:', error.message || 'Unknown error');
+      }
+      
       // Clear stored token on auth failure
       this.authToken = null;
       this.tokenExpiry = null;

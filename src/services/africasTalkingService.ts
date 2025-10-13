@@ -198,10 +198,10 @@ class AfricasTalkingService {
 
     // Fallback to dynamic generation
     const prompts = {
-      en: "Please ask your next question or describe another livestock concern. Speak clearly after the beep and press hash when done.",
-      yo: "Ẹ béèrè ìbéèrè yín tókàn tàbí ẹ sọ ìṣòro ẹranko mìíràn. Ẹ sọ̀rọ̀ kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
-      ha: "Don Allah ku yi wata tambaya ko ku bayyana wata matsalar dabbobi. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama.",
-      ig: "Biko jụọ ajụjụ gị ọzọ ma ọ bụ kọwaa nsogbu anụmanụ ọzọ. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara.",
+      en: "What else can I help you with?",
+      yo: "Kíni mìíràn tí mo lè ṣe fún yín?",
+      ha: "Me kuma zan iya taimaka muku da shi?",
+      ig: "Gịnị ọzọ ka m nwere ike inyere gị aka?",
     };
 
     const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
@@ -231,7 +231,7 @@ class AfricasTalkingService {
 
   async generatePostAIMenuResponse(language: string): Promise<string> {
     const prompts = {
-      en: "Do you have any other concerns? Press 1 to ask another question, press 2 to speak with a human expert, press 3 to go back to main menu, or press 0 to end the call.",
+      en: "Press 1 for another question or press 0 to end the call.",
       yo: "Ṣé ẹ fẹ́ bá dokita oníwòsàn ẹranko sọ̀rọ̀? Ẹ tẹ́ ọ̀kan láti bá amọ̀ràn sọ̀rọ̀, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
       ha: "Kana son yin magana da ƙwararren likitan dabbobi? Danna ɗaya don yin magana da ƙwararre, ko danna sifili don kammala kiran.",
       ig: "Ị nwere nsogbu ndị ọzọ? Pịa 1 iji jụọ ajụjụ ọzọ, pịa 2 iji kwuo okwu na ọkachamara mmadụ, pịa 3 iji laghachi na menu izizi, ma ọ bụ pịa 0 iji kwụsị oku a.",

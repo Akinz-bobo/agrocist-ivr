@@ -28,7 +28,7 @@ class StaticAudioService {
       wait: "Just a moment, processing your request.",
       directRecording: "You have selected English. Please describe your livestock concern. Speak clearly after the beep and press hash when done.",
       followUpRecording: "Please ask your next question or describe another livestock concern. Speak clearly after the beep and press hash when done.",
-      postAIMenu: "Do you have any other concerns? Press 1 to ask another question, press 2 to speak with a human expert, press 3 to go back to main menu, or press 0 to end the call.",
+      postAIMenu: "Press 1 for another question or press 0 to end the call.",
       noInputMessage: "We did not receive your selection. Let me repeat the options.",
       transfer: "Please hold while I connect you to one of our veterinary experts."
     },
@@ -41,7 +41,7 @@ class StaticAudioService {
       wait: "Ẹ dúró díẹ̀, a ń ṣe ìbéèrè yín.",
       directRecording: "Ẹ ti yan Èdè Yorùbá. Ẹ sọ ìṣòro ẹranko yín kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
       followUpRecording: "Ẹ béèrè ìbéèrè yín tókàn tàbí ẹ sọ ìṣòro ẹranko mìíràn. Ẹ sọ̀rọ̀ kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
-      postAIMenu: "Ṣé ẹ ní ìṣòro mìíràn? Ẹ tẹ́ ọ̀kan láti béèrè ìbéèrè mìíràn, ẹ tẹ́ méjì láti bá amọ̀ràn sọ̀rọ̀, ẹ tẹ́ mẹ́ta láti padà sí àtòjọ àkọ́kọ́, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
+      postAIMenu: "Ẹ tẹ́ ọ̀kan fún ìbéèrè mìíràn tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
       noInputMessage: "A kò gbọ́ àṣàyàn yín. Ẹ jẹ́ kí n tún àwọn àṣàyàn náà sọ.",
       transfer: "Ẹ dúró síbẹ̀ kí n so yín mọ́ ọ̀kan lára àwọn amọ̀ràn oníwòsàn ẹranko wa."
     },
@@ -54,7 +54,7 @@ class StaticAudioService {
       wait: "Don Allah ku ɗan jira, muna aiwatar da buƙatarku.",
       directRecording: "Kun zaɓi Hausa. Don Allah ku bayyana matsalar dabbobinku. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama.",
       followUpRecording: "Don Allah ku yi wata tambaya ko ku bayyana wata matsalar dabbobi. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama.",
-      postAIMenu: "Kana da wasu matsaloli? Danna 1 don yin wata tambaya, danna 2 don magana da ƙwararren likita, danna 3 don komawa babban menu, ko danna 0 don kammala kiran.",
+      postAIMenu: "Danna 1 don wata tambaya ko danna 0 don kammala kiran.",
       noInputMessage: "Ba mu karɓi zaɓin ku ba. Bari in sake maimaita zaɓukan.",
       transfer: "Don Allah ku jira yayin da nake haɗa ku da ɗaya daga cikin ƙwararrun likitocin dabbobinmu."
     },
@@ -67,7 +67,7 @@ class StaticAudioService {
       wait: "Chere ntakịrị, anyị na-edozi ihe ị chọrọ.",
       directRecording: "Ịhọrọla Igbo. Biko kọwaa nsogbu anụmanụ gị. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara.",
       followUpRecording: "Biko jụọ ajụjụ gị ọzọ ma ọ bụ kọwaa nsogbu anụmanụ ọzọ. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara.",
-      postAIMenu: "Ị nwere nsogbu ndị ọzọ? Pịa 1 iji jụọ ajụjụ ọzọ, pịa 2 iji kwuo okwu na ọkachamara mmadụ, pịa 3 iji laghachi na menu izizi, ma ọ bụ pịa 0 iji kwụsị oku a.",
+      postAIMenu: "Pịa 1 maka ajụjụ ọzọ ma ọ bụ pịa 0 iji kwụsị oku a.",
       noInputMessage: "Anyị anatabeghị nhọrọ gị. Ka m kwughachi nhọrọ ndị ahụ.",
       transfer: "Biko chere ka m jikọọ gị na otu n'ime ndị ọkachamara veterinary anyị."
     }
@@ -84,10 +84,23 @@ class StaticAudioService {
     let successCount = 0;
     let failedCount = 0;
 
+    // Quick DSN API health check
+    const ttsService = (await import('./ttsService')).default;
+    const token = await ttsService.authenticateDSN();
+    
+    if (!token) {
+      logger.warn('⚠️ DSN API unavailable - skipping static audio generation, system will use dynamic TTS');
+      logger.info('🎵 Static audio pre-generation completed in 0ms');
+      logger.info(`✅ Success: 0, ❌ Failed: 0, Total: 0 (skipped due to DSN API unavailability)`);
+      return;
+    }
+
     const languages: Array<'en' | 'yo' | 'ha' | 'ig'> = ['en', 'yo', 'ha', 'ig'];
     
+    // SPEED OPTIMIZATION: Process all files in parallel for maximum speed
+    const allTasks: Promise<void>[] = [];
+    
     for (const language of languages) {
-      logger.info(`🎵 Generating static audio for ${language}...`);
       const texts = this.staticTexts[language];
       
       if (!texts) {
@@ -95,48 +108,27 @@ class StaticAudioService {
         continue;
       }
       
+      // Create parallel tasks for each text
       for (const [key, text] of Object.entries(texts)) {
-        try {
-          const options: TTSOptions = { language };
-          const audioUrl = await ttsService.generateSpeech(text as string, options);
-          
-          // Store with key pattern: language_textKey (e.g., "en_welcome", "yo_processing")
-          const cacheKey = `${language}_${key}`;
-          
-          // If Cloudinary is enabled, check for existing static files with proper naming
-          let finalUrl = audioUrl;
-          if (cloudinaryService.isEnabled()) {
-            // Use the proper static naming pattern: static_welcome_en, static_processing_yo, etc.
-            const staticPublicId = `static_${key}_${language}`;
-            const existsOnCloudinary = await cloudinaryService.fileExists(staticPublicId);
-            
-            if (existsOnCloudinary) {
-              // File already exists, use the existing URL
-              const existingCloudinaryUrl = cloudinaryService.getOptimizedUrl(staticPublicId);
-              if (existingCloudinaryUrl) {
-                finalUrl = existingCloudinaryUrl;
-                logger.info(`♻️ Using existing static Cloudinary file: ${cacheKey}`);
-              }
-            } else {
-              // File doesn't exist, upload it with proper static naming
-              const cloudinaryUrl = await this.uploadStaticToCloudinary(text as string, language, key);
-              if (cloudinaryUrl) {
-                finalUrl = cloudinaryUrl;
-                logger.info(`📤 Uploaded new static audio to Cloudinary: ${cacheKey}`);
-              }
-            }
-          }
-          
-          this.staticAudioUrls.set(cacheKey, finalUrl);
-          
-          successCount++;
-          logger.info(`✅ Generated ${cacheKey}: ${(text as string).substring(0, 50)}...`);
-        } catch (error) {
-          failedCount++;
-          logger.error(`❌ Failed to generate ${language}_${key}:`, error);
-        }
+        const task = this.processStaticAudio(language, key, text as string);
+        allTasks.push(task);
       }
     }
+    
+    logger.info(`🚀 Processing ${allTasks.length} static audio files in parallel...`);
+    
+    // Process all files in parallel
+    const results = await Promise.allSettled(allTasks);
+    
+    // Count results
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        successCount++;
+      } else {
+        failedCount++;
+        logger.error(`❌ Task ${index} failed:`, result.reason);
+      }
+    });
 
     const totalTime = Date.now() - startTime;
     logger.info(`🎵 Static audio pre-generation completed in ${totalTime}ms`);
@@ -162,9 +154,67 @@ class StaticAudioService {
   }
 
   /**
+   * Process a single static audio file (check existence + generate if needed)
+   */
+  private async processStaticAudio(language: string, key: string, text: string): Promise<void> {
+    const cacheKey = `${language}_${key}`;
+    let finalUrl: string | null = null;
+    
+    // OPTIMIZATION: Check if file exists on Cloudinary FIRST (fast)
+    if (cloudinaryService.isEnabled()) {
+      const staticPublicId = `${config.cloudinary.folder}/static/static_${key}_${language}`;
+      
+      try {
+        logger.debug(`🔍 Checking for existing file: ${staticPublicId}`);
+        const existsOnCloudinary = await cloudinaryService.fileExists(staticPublicId);
+        
+        if (existsOnCloudinary) {
+          // File already exists, use the existing URL (FAST PATH)
+          const existingCloudinaryUrl = cloudinaryService.getOptimizedUrl(staticPublicId);
+          if (existingCloudinaryUrl) {
+            finalUrl = existingCloudinaryUrl;
+            logger.info(`♻️ Using existing static Cloudinary file: ${cacheKey} (${staticPublicId})`);
+          }
+        } else {
+          // File doesn't exist, generate and upload it (SLOW PATH)
+          logger.info(`📤 Generating new static audio: ${cacheKey} (will upload as ${staticPublicId})`);
+          finalUrl = await this.uploadStaticToCloudinary(text, language, key);
+          if (finalUrl) {
+            logger.info(`✅ Uploaded new static audio to Cloudinary: ${cacheKey}`);
+          }
+        }
+      } catch (error) {
+        // If Cloudinary API is having issues, try to get URL directly first
+        logger.warn(`Cloudinary API error for ${cacheKey}, trying direct URL:`, error);
+        const directUrl = cloudinaryService.getOptimizedUrl(staticPublicId);
+        if (directUrl) {
+          finalUrl = directUrl;
+          logger.info(`♻️ Using direct Cloudinary URL despite API error: ${cacheKey}`);
+        } else {
+          // Last resort: generate new file
+          finalUrl = await this.uploadStaticToCloudinary(text, language, key);
+          if (finalUrl) {
+            logger.info(`✅ Generated static audio despite API issues: ${cacheKey}`);
+          }
+        }
+      }
+    } else {
+      // Cloudinary disabled, generate anyway
+      finalUrl = await this.uploadStaticToCloudinary(text, language, key);
+    }
+    
+    if (finalUrl) {
+      this.staticAudioUrls.set(cacheKey, finalUrl);
+      logger.debug(`✅ Generated ${cacheKey}: ${text.substring(0, 50)}...`);
+    } else {
+      throw new Error(`Failed to generate static audio for ${cacheKey}`);
+    }
+  }
+
+  /**
    * Upload static audio file to Cloudinary directly from TTS buffer
    */
-  private async uploadStaticToCloudinary(
+  async uploadStaticToCloudinary(
     text: string, 
     language: string, 
     textKey: string
@@ -209,7 +259,8 @@ class StaticAudioService {
       const token = await ttsService.authenticateDSN();
       
       if (!token) {
-        throw new Error('Failed to authenticate with DSN API');
+        logger.warn('DSN API authentication failed');
+        return null;
       }
 
       // Voice configurations
@@ -222,7 +273,8 @@ class StaticAudioService {
 
       const voiceConfig = voiceConfigs[language];
       if (!voiceConfig) {
-        throw new Error(`No voice configuration found for language: ${language}`);
+        logger.warn(`No voice configuration found for language: ${language}`);
+        return null;
       }
 
       // Create form data for the request
@@ -234,7 +286,7 @@ class StaticAudioService {
       formData.append('quality', 'medium');
       formData.append('encoding', 'mp3_64');
 
-      // Make request to DSN TTS API
+      // Make request to DSN TTS API with timeout
       const response = await axios({
         method: 'POST',
         url: `${config.dsn.baseUrl}/api/v1/ai/spitch/text-to-speech`,
@@ -243,12 +295,22 @@ class StaticAudioService {
           ...formData.getHeaders(),
           'Authorization': `Bearer ${token}`
         },
-        responseType: 'arraybuffer'
+        responseType: 'arraybuffer',
+        timeout: 30000 // 30 second timeout
       });
 
       return Buffer.from(response.data);
-    } catch (error) {
-      logger.error('Error generating TTS buffer:', error);
+    } catch (error: any) {
+      // Handle common timeout and connection errors concisely
+      if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        logger.warn(`DSN API timeout for ${language} audio generation`);
+      } else if (error.response?.status === 504) {
+        logger.warn(`DSN API gateway timeout (504) for ${language} audio`);
+      } else if (error.response?.status >= 500) {
+        logger.warn(`DSN API server error (${error.response.status}) for ${language} audio`);
+      } else {
+        logger.warn(`DSN TTS failed for ${language}:`, error.message || 'Unknown error');
+      }
       return null;
     }
   }

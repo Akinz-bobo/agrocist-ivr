@@ -14,6 +14,8 @@ export interface CloudinaryUploadResult {
 
 class CloudinaryService {
   private isConfigured: boolean = false;
+  private fileExistenceCache: Map<string, { exists: boolean; timestamp: number }> = new Map();
+  private cacheExpiryMs: number = 5 * 60 * 1000; // 5 minutes
 
   constructor() {
     this.initializeCloudinary();
@@ -105,6 +107,9 @@ class CloudinaryService {
         resourceType: result.resource_type
       };
 
+      // Update cache to mark this file as existing
+      this.fileExistenceCache.set(result.public_id, { exists: true, timestamp: Date.now() });
+
       const fileSize = fs.statSync(filePath).size;
       logger.info(`✅ Cloudinary upload successful: ${result.secure_url} (${fileSize} bytes)`);
 
@@ -161,6 +166,9 @@ class CloudinaryService {
         resourceType: result.resource_type
       };
 
+      // Update cache to mark this file as existing
+      this.fileExistenceCache.set(result.public_id, { exists: true, timestamp: Date.now() });
+
       logger.info(`✅ Cloudinary buffer upload successful: ${result.secure_url} (${buffer.length} bytes)`);
 
       return uploadResult;
@@ -184,6 +192,8 @@ class CloudinaryService {
       });
 
       if (result.result === 'ok') {
+        // Remove from cache when deleted
+        this.fileExistenceCache.delete(publicId);
         logger.info(`✅ Cloudinary deletion successful: ${publicId}`);
         return true;
       } else {
@@ -197,33 +207,48 @@ class CloudinaryService {
   }
 
   /**
-   * Check if a file exists on Cloudinary
+   * Check if a file exists on Cloudinary with caching to reduce API calls
    */
   async fileExists(publicId: string): Promise<boolean> {
     if (!this.isEnabled()) {
       return false;
     }
 
+    // Check cache first
+    const cached = this.fileExistenceCache.get(publicId);
+    const now = Date.now();
+    
+    if (cached && (now - cached.timestamp) < this.cacheExpiryMs) {
+      logger.debug(`Using cached existence result for ${publicId}: ${cached.exists}`);
+      return cached.exists;
+    }
+
     try {
-      // Try video first (most common for audio files), then raw if that fails
+      // Audio/MP3 files are stored as 'video' resource type in Cloudinary
       await cloudinary.api.resource(publicId, { resource_type: 'video' });
+      
+      // Cache the positive result
+      this.fileExistenceCache.set(publicId, { exists: true, timestamp: now });
+      logger.debug(`File exists on Cloudinary (cached): ${publicId}`);
       return true;
     } catch (error: any) {
-      // If error is 404 (not found), try checking as raw resource type
       if (error.http_code === 404) {
-        try {
-          await cloudinary.api.resource(publicId, { resource_type: 'raw' });
-          return true;
-        } catch (rawError: any) {
-          if (rawError.http_code === 404) {
-            return false; // File doesn't exist - this is expected, no need to log
-          }
-          logger.warn(`Error checking Cloudinary file existence for ${publicId} as raw:`, rawError);
-          return false;
-        }
+        // Cache the negative result for a shorter time (1 minute) in case file gets uploaded
+        this.fileExistenceCache.set(publicId, { exists: false, timestamp: now });
+        return false; // File doesn't exist - this is expected
       }
-      // Only log non-404 errors as these are unexpected
-      logger.warn(`Error checking Cloudinary file existence for ${publicId}:`, error);
+      
+      // Handle rate limiting specifically
+      if (error.error?.http_code === 420 || error.http_code === 420) {
+        const retryTime = error.error?.message?.match(/Try again on ([\d-:\s]+) UTC/)?.[1];
+        logger.warn(`🚨 Cloudinary rate limit exceeded (500 operations). Files will be regenerated. Retry after: ${retryTime || 'unknown time'}`);
+        // Don't cache rate limit errors - we want to retry later
+        return false; // Treat as file not found to trigger regeneration
+      }
+      
+      // Log other unexpected errors
+      logger.warn(`Error checking Cloudinary file existence for ${publicId}:`, error.error?.message || error.message || 'Unknown error');
+      // Don't cache errors - we want to retry
       return false;
     }
   }
@@ -326,6 +351,48 @@ class CloudinaryService {
       logger.error('Failed to get Cloudinary usage stats:', error);
       return null;
     }
+  }
+
+  /**
+   * Clear the file existence cache
+   */
+  clearFileExistenceCache(): void {
+    this.fileExistenceCache.clear();
+    logger.info('Cloudinary file existence cache cleared');
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats(): {
+    size: number;
+    entries: Array<{ publicId: string; exists: boolean; age: number }>;
+  } {
+    const now = Date.now();
+    const entries = Array.from(this.fileExistenceCache.entries()).map(([publicId, data]) => ({
+      publicId,
+      exists: data.exists,
+      age: Math.round((now - data.timestamp) / 1000) // age in seconds
+    }));
+
+    return {
+      size: this.fileExistenceCache.size,
+      entries
+    };
+  }
+
+  /**
+   * Pre-populate cache with known static files to reduce API calls
+   */
+  prePopulateCache(staticFiles: Array<{ publicId: string; exists: boolean }>): void {
+    const now = Date.now();
+    staticFiles.forEach(file => {
+      this.fileExistenceCache.set(file.publicId, {
+        exists: file.exists,
+        timestamp: now
+      });
+    });
+    logger.info(`Pre-populated cache with ${staticFiles.length} static file entries`);
   }
 }
 

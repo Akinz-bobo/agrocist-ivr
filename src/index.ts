@@ -138,9 +138,9 @@ const server = app.listen(config.port, async () => {
   staticAudioService.preGenerateStaticAudio().then(() => {
     logger.info('✅ Static audio pre-generation completed - system ready for ultra-fast responses!');
     
-    // Then do the regular audio pre-warming for additional speed
-    logger.info('🔥 Starting additional audio pre-warming...');
-    return audioPrewarmService.prewarmAudio();
+    // Skip audioPrewarmService since staticAudioService already handles static audio properly
+    logger.info('✅ Static audio pre-generation completed - skipping redundant prewarmAudio');
+    return Promise.resolve();
   }).then(() => {
     logger.info('✅ All audio initialization completed - system fully optimized!');
   }).catch((error) => {

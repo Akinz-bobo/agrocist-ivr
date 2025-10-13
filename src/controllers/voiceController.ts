@@ -756,10 +756,12 @@ class VoiceController {
         const audioTag = await this.generateLanguageSpecificSay(aiResponse, language);
         
         const postAIPrompt = language === 'en' ? 
-          "Do you have any other concerns? Press 1 to ask another question, press 2 to speak with a human expert, press 3 to go back to main menu, or press 0 to end the call." :
+          "Press 1 for another question or press 0 to end the call." :
           language === 'yo' ?
-          "Ṣé ẹ ní ìṣòro mìíràn? Ẹ tẹ́ ọ̀kan láti béèrè ìbéèrè mìíràn, ẹ tẹ́ méjì láti bá amọ̀ràn sọ̀rọ̀, ẹ tẹ́ mẹ́ta láti padà sí àtòjọ àkọ́kọ́, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà." :
-          "Kana da wasu matsaloli? Danna 1 don yin wata tambaya, danna 2 don magana da ƙwararren likita, danna 3 don komawa babban menu, ko danna 0 don kammala kiran.";
+          "Ẹ tẹ́ ọ̀kan fún ìbéèrè mìíràn tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà." :
+          language === 'ha' ?
+          "Danna 1 don wata tambaya ko danna 0 don kammala kiran." :
+          "Pịa 1 maka ajụjụ ọzọ ma ọ bụ pịa 0 iji kwụsị oku a.";
         
         const postAIAudio = await this.generateLanguageSpecificSay(postAIPrompt, language);
         const noInputMessage = await this.generateLanguageSpecificSay("We did not receive your selection. Let me repeat the options.", language);

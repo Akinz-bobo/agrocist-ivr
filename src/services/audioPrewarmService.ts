@@ -1,5 +1,5 @@
 import logger from '../utils/logger';
-import ttsService, { TTSOptions } from './ttsService';
+import staticAudioService from './staticAudioService';
 
 /**
  * Audio Pre-warming Service
@@ -99,11 +99,30 @@ class AudioPrewarmService {
   }
 
   /**
-   * Generate a single prompt
+   * Generate a single prompt using static audio service
    */
   private async generatePrompt(text: string, language: 'en' | 'yo' | 'ha' | 'ig'): Promise<void> {
-    const options: TTSOptions = { language };
-    await ttsService.generateSpeech(text, options);
+    const textKey = this.getTextKeyForPrompt(text);
+    await staticAudioService.uploadStaticToCloudinary(text, language, textKey);
+  }
+
+  /**
+   * Get appropriate text key for a prompt
+   */
+  private getTextKeyForPrompt(text: string): string {
+    if (text.includes('Welcome to Agrocist')) return 'welcome';
+    if (text.includes('You have selected English')) return 'english_selected';
+    if (text.includes('Ẹ ti yan Èdè Yorùbá')) return 'yoruba_selected';
+    if (text.includes('Kun zaɓi Hausa')) return 'hausa_selected';
+    if (text.includes('Ịhọrọla Igbo')) return 'igbo_selected';
+    if (text.includes('analyzing your concern') || text.includes('ṣe ìtúpalẹ̀')) return 'processing';
+    if (text.includes('Just a moment') || text.includes('Ẹ dúró díẹ̀')) return 'wait';
+    if (text.includes('speak with a human') || text.includes('bá dokita')) return 'human_menu';
+    if (text.includes('Thank you for using') || text.includes('A dúpẹ́ fún lilo')) return 'goodbye';
+    if (text.includes("didn't understand") || text.includes('kò yé mi')) return 'error';
+    
+    // Fallback: use first few words as key
+    return text.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 20);
   }
 
   /**
