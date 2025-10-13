@@ -218,10 +218,13 @@ class CloudinaryService {
     const cached = this.fileExistenceCache.get(publicId);
     const now = Date.now();
     
+    // Use cached result if not expired
     if (cached && (now - cached.timestamp) < this.cacheExpiryMs) {
       logger.debug(`Using cached existence result for ${publicId}: ${cached.exists}`);
       return cached.exists;
     }
+    
+    // If no cache entry or cache expired, check Cloudinary API
 
     try {
       // Audio/MP3 files are stored as 'video' resource type in Cloudinary

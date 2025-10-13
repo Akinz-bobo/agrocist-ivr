@@ -39,11 +39,13 @@ class AfricasTalkingService {
         response += await this.getTransferXML(language);
         break;
       case "end":
-        const endText = this.getLocalizedText('goodbye', language);
-        const endAudioUrl = await this.generateTTSAudio(endText, language);
-        response += endAudioUrl ? 
-          `  <Play url="${endAudioUrl}"/>` : 
-          `  <Say voice="${this.getVoiceForLanguage(language)}" playBeep="false">${this.escapeXML(endText)}</Say>`;
+        const endAudioUrl = staticAudioService.getStaticAudioUrl(language, 'goodbye');
+        if (endAudioUrl) {
+          response += `  <Play url="${endAudioUrl}"/>`;
+        } else {
+          const endText = staticAudioService.getStaticText(language, 'goodbye');
+          response += `  <Say voice="${this.getVoiceForLanguage(language)}" playBeep="false">${this.escapeXML(endText)}</Say>`;
+        }
         // Just end with closing tag - AT will end call automatically
         break;
       default:
@@ -103,15 +105,21 @@ class AfricasTalkingService {
   }
 
   async generateErrorResponse(language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
-    const errorText = this.getLocalizedText('error', language);
-    const audioUrl = await this.generateTTSAudio(errorText, language);
-    const playTag = audioUrl ? 
-      `<Play url="${audioUrl}"/>` : 
-      `<Say>${this.escapeXML(errorText)}</Say>`;
+    const audioUrl = staticAudioService.getStaticAudioUrl(language, 'error');
     
+    if (audioUrl) {
+      return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play url="${audioUrl}"/>
+  <Redirect>${config.webhook.baseUrl}/voice</Redirect>
+</Response>`;
+    }
+
+    // Fallback to text if static audio not available
+    const errorText = staticAudioService.getStaticText(language, 'error');
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${playTag}
+  <Say>${this.escapeXML(errorText)}</Say>
   <Redirect>${config.webhook.baseUrl}/voice</Redirect>
 </Response>`;
   }
@@ -131,102 +139,47 @@ class AfricasTalkingService {
   }
 
   async generateDirectRecordingResponse(language: string): Promise<string> {
-    // Try to use pre-generated static audio first
-    try {
-      const audioUrl = staticAudioService.getStaticAudioUrl(language as 'en' | 'yo' | 'ha' | 'ig', 'directRecording');
-      if (audioUrl) {
-        return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Record maxLength="25" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
-    <Play url="${audioUrl}"/>
-  </Record>
-</Response>`;
-      }
-    } catch (error) {
-      logger.warn('Failed to get static audio for direct recording, falling back to dynamic generation');
-    }
-
-    // Fallback to dynamic generation
-    const prompts = {
-      en: "You have selected English. Please describe your livestock concern. Speak clearly after the beep and press hash when done.",
-      yo: "Ẹ ti yan Èdè Yorùbá. Ẹ sọ ìṣòro ẹranko yín kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
-      ha: "Kun zaɓi Hausa. Don Allah ku bayyana matsalar dabbobinku. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama.",
-      ig: "Ịhọrọla Igbo. Biko kọwaa nsogbu anụmanụ gị. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara.",
-    };
-
-    const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
-    const langCode = language as 'en' | 'yo' | 'ha' | 'ig';
-
-    // According to Africa's Talking docs, prompt should be INSIDE the Record tag
-    // This ensures the beep plays and recording starts properly
-    const audioUrl = await this.generateTTSAudio(prompt, langCode);
-
+    const audioUrl = staticAudioService.getStaticAudioUrl(language as 'en' | 'yo' | 'ha' | 'ig', 'directRecording');
+    
     if (audioUrl) {
-      // If we have TTS audio, use Play inside Record
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
     <Play url="${audioUrl}"/>
   </Record>
 </Response>`;
-    } else {
-      // Fallback to Say inside Record with proper voice
-      return `<?xml version="1.0" encoding="UTF-8"?>
+    }
+
+    // Fallback to text if static audio not available
+    const prompt = staticAudioService.getStaticText(language as 'en' | 'yo' | 'ha' | 'ig', 'directRecording');
+    return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
     <Say>${this.escapeXML(prompt)}</Say>
   </Record>
 </Response>`;
-    }
   }
 
   async generateFollowUpRecordingResponse(language: string): Promise<string> {
-    // Try to use pre-generated static audio first
-    try {
-      const audioUrl = staticAudioService.getStaticAudioUrl(language as 'en' | 'yo' | 'ha' | 'ig', 'followUpRecording');
-      if (audioUrl) {
-        return `<?xml version="1.0" encoding="UTF-8"?>
+    const audioUrl = staticAudioService.getStaticAudioUrl(language as 'en' | 'yo' | 'ha' | 'ig', 'followUpRecording');
+    
+    if (audioUrl) {
+      return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
     <Play url="${audioUrl}"/>
   </Record>
 </Response>`;
-      }
-    } catch (error) {
-      logger.warn('Failed to get static audio for follow-up recording, falling back to dynamic generation');
     }
 
-    // Fallback to dynamic generation
-    const prompts = {
-      en: "What else can I help you with?",
-      yo: "Kíni mìíràn tí mo lè ṣe fún yín?",
-      ha: "Me kuma zan iya taimaka muku da shi?",
-      ig: "Gịnị ọzọ ka m nwere ike inyere gị aka?",
-    };
-
-    const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
-    const langCode = language as 'en' | 'yo' | 'ha' | 'ig';
-
-    // Generate TTS audio for the follow-up prompt
-    const audioUrl = await this.generateTTSAudio(prompt, langCode);
-
-    if (audioUrl) {
-      // If we have TTS audio, use Play inside Record
-      return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
-    <Play url="${audioUrl}"/>
-  </Record>
-</Response>`;
-    } else {
-      // Fallback to Say inside Record with proper voice
-      return `<?xml version="1.0" encoding="UTF-8"?>
+    // Fallback to text if static audio not available
+    const prompt = staticAudioService.getStaticText(language as 'en' | 'yo' | 'ha' | 'ig', 'followUpRecording');
+    return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
     <Say>${this.escapeXML(prompt)}</Say>
   </Record>
 </Response>`;
-    }
   }
 
   async generatePostAIMenuResponse(language: string): Promise<string> {
@@ -240,11 +193,17 @@ class AfricasTalkingService {
     const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
     const langCode = (language as 'en' | 'yo' | 'ha' | 'ig') || 'en';
     
-    // Generate TTS audio with appropriate voice for the language
-    const audioUrl = await this.generateTTSAudio(prompt, langCode);
-    const playTag = audioUrl ? 
-      `<Play url="${audioUrl}"/>` : 
-      `<Say>${this.escapeXML(prompt)}</Say>`;
+    // Try to use static audio for post-AI menu
+    const audioUrl = staticAudioService.getStaticAudioUrl(langCode, 'postAIMenu');
+    let playTag: string;
+    
+    if (audioUrl) {
+      playTag = `<Play url="${audioUrl}"/>`;
+    } else {
+      // Fallback to static text if audio not available
+      const staticPrompt = staticAudioService.getStaticText(langCode, 'postAIMenu');
+      playTag = `<Say>${this.escapeXML(staticPrompt)}</Say>`;
+    }
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -271,30 +230,16 @@ ${welcomeXML}
    * Generate multi-language welcome message using pre-generated static audio
    */
   private async generateMultiLanguageWelcome(): Promise<string> {
-    try {
-      // Try to get pre-generated welcome audio
-      const audioUrl = staticAudioService.getStaticAudioUrl('en', 'welcome');
+    const audioUrl = staticAudioService.getStaticAudioUrl('en', 'welcome');
 
-      if (audioUrl) {
-        logger.info(`📢 Welcome audio URL (static): ${audioUrl}`);
-        return `    <Play url="${audioUrl}"/>`;
-      } else {
-        logger.warn('⚠️ No static audio URL for welcome, generating dynamically');
-        const welcomeText = staticAudioService.getStaticText('en', 'welcome');
-        const dynamicAudioUrl = await this.generateTTSAudio(welcomeText, 'en');
-        
-        if (dynamicAudioUrl) {
-          return `    <Play url="${dynamicAudioUrl}"/>`;
-        } else {
-          return `    <Say>${this.escapeXML(welcomeText)}</Say>`;
-        }
-      }
-    } catch (error) {
-      logger.error('Error generating multi-language welcome:', error);
-      // Fallback to simple text
-      const fallbackText = "Welcome to Agrocist. Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.";
-      return `    <Say>${this.escapeXML(fallbackText)}</Say>`;
+    if (audioUrl) {
+      logger.info(`📢 Welcome audio URL (static): ${audioUrl}`);
+      return `    <Play url="${audioUrl}"/>`;
     }
+
+    // Fallback to text if static audio not available
+    const welcomeText = staticAudioService.getStaticText('en', 'welcome');
+    return `    <Say>${this.escapeXML(welcomeText)}</Say>`;
   }
 
 
@@ -315,13 +260,16 @@ ${welcomeXML}
   }
 
   private async getTransferXML(language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
-    const transferText = this.getLocalizedText('transfer', language);
-    const audioUrl = await this.generateTTSAudio(transferText, language);
-    const playTag = audioUrl ? 
-      `<Play url="${audioUrl}"/>` : 
-      `<Say voice="${this.getVoiceForLanguage(language)}" playBeep="false">${this.escapeXML(transferText)}</Say>`;
+    const audioUrl = staticAudioService.getStaticAudioUrl(language, 'transfer');
     
-    return `${playTag}
+    if (audioUrl) {
+      return `<Play url="${audioUrl}"/>
+  <Dial phoneNumbers="${config.agent.phoneNumber}" record="true" sequential="true" callbackUrl="${config.webhook.baseUrl}/voice/transfer"/>`;
+    }
+
+    // Fallback to text if static audio not available
+    const transferText = staticAudioService.getStaticText(language, 'transfer');
+    return `<Say voice="${this.getVoiceForLanguage(language)}" playBeep="false">${this.escapeXML(transferText)}</Say>
   <Dial phoneNumbers="${config.agent.phoneNumber}" record="true" sequential="true" callbackUrl="${config.webhook.baseUrl}/voice/transfer"/>`;
   }
 

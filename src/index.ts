@@ -6,7 +6,6 @@ import logger from './utils/logger';
 import database from './utils/database';
 import voiceRoutes from './routes/voice';
 import analyticsRoutes from './routes/analytics';
-import audioPrewarmService from './services/audioPrewarmService';
 import staticAudioService from './services/staticAudioService';
 
 const app = express();
@@ -137,12 +136,6 @@ const server = app.listen(config.port, async () => {
   logger.info('🎵 Starting static audio pre-generation in background...');
   staticAudioService.preGenerateStaticAudio().then(() => {
     logger.info('✅ Static audio pre-generation completed - system ready for ultra-fast responses!');
-    
-    // Skip audioPrewarmService since staticAudioService already handles static audio properly
-    logger.info('✅ Static audio pre-generation completed - skipping redundant prewarmAudio');
-    return Promise.resolve();
-  }).then(() => {
-    logger.info('✅ All audio initialization completed - system fully optimized!');
   }).catch((error) => {
     logger.warn('⚠️ Audio initialization failed, but system will continue:', error);
   });
