@@ -42,8 +42,6 @@ class TTSService {
       formData.append('language', voiceConfig.language);
       formData.append('voice', voiceConfig.voiceId);
       formData.append('format', 'mp3');
-      formData.append('quality', 'medium');
-      formData.append('encoding', 'mp3_64');
 
       // Make request to DSN TTS API
       const response = await axios({
