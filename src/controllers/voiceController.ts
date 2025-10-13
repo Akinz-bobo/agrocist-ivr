@@ -272,14 +272,25 @@ class VoiceController {
       logger.info(`Full webhook data:`, JSON.stringify(webhookData, null, 2));
       logger.info(`Recording received - Session: ${sessionId}, Active: ${isActive}, URL: ${recording}, Duration: ${callRecordingDurationInSeconds}s`);
 
-      // If call is not active, just log and return empty response
+      // If call is not active, process recording if available then return
       if (isActive === "0") {
         if (recording) {
           logger.info(`Session ${sessionId}: Recording completed. URL: ${recording}, Duration: ${callRecordingDurationInSeconds}s`);
-          // Store recording URL for later processing
+          
+          // Store recording URL 
           sessionManager.updateSessionContext(sessionId, {
             recordingUrl: recording,
             recordingDuration: callRecordingDurationInSeconds
+          });
+
+          // Process recording even when call is inactive
+          const session = sessionManager.getSession(sessionId);
+          const sessionLanguage = (session?.context?.language || session?.language || 'en') as 'en' | 'yo' | 'ha' | 'ig';
+          
+          logger.info(`🚀 Starting background processing for inactive session: ${sessionId}`);
+          this.processRecordingInBackground(sessionId, recording, sessionLanguage).catch(err => {
+            logger.error(`Background processing failed for session ${sessionId}:`, err);
+            sessionManager.updateSessionContext(sessionId, { processingError: true });
           });
         }
 
