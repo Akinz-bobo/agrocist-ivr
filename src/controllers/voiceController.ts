@@ -652,24 +652,10 @@ class VoiceController {
       const truncatedResponse = this.truncateForAudio(cleanedResponse);
       logger.info(`📝 Truncated AI response from ${cleanedResponse.length} to ${truncatedResponse.length} characters`);
 
-      // 5. Pre-generate TTS audio during processing to eliminate playback delay
-      logger.info(`⚡ Pre-generating TTS audio for session ${sessionId}`);
-      const ttsStartTime = Date.now();
-      let preGeneratedAudioUrl: string | null = null;
-      
-      try {
-        preGeneratedAudioUrl = await this.generateLanguageSpecificSay(truncatedResponse, language);
-        const ttsTime = Date.now() - ttsStartTime;
-        logger.info(`⚡ TTS pre-generation completed in ${ttsTime}ms`);
-      } catch (error) {
-        logger.warn(`TTS pre-generation failed for session ${sessionId}:`, error);
-      }
-
-      // 6. Store AI interaction and mark as ready with pre-generated audio
+      // 5. Store AI interaction and mark as ready (no TTS pre-generation to avoid delays)
       sessionManager.addAIInteraction(sessionId, farmerText, truncatedResponse, 0.9, 'veterinary');
       sessionManager.updateSessionContext(sessionId, {
         aiResponse: truncatedResponse,
-        preGeneratedAudio: preGeneratedAudioUrl,
         aiReady: true
       });
 
@@ -757,7 +743,6 @@ class VoiceController {
       if (session.context.aiReady && session.context.aiResponse) {
         logger.info(`✅ AI response ready for session ${sessionId}`);
         const aiResponse = session.context.aiResponse;
-        const preGeneratedAudio = session.context.preGeneratedAudio;
 
         // Track state transition to AI response
         try {
@@ -769,15 +754,8 @@ class VoiceController {
           logger.warn('Failed to track AI response state:', error);
         }
 
-        // Use pre-generated audio if available, otherwise generate now
-        let audioTag: string;
-        if (preGeneratedAudio) {
-          logger.info(`🎵 Using pre-generated audio for session ${sessionId}`);
-          audioTag = preGeneratedAudio;
-        } else {
-          logger.info(`🎵 Generating audio on-demand for session ${sessionId}`);
-          audioTag = await this.generateLanguageSpecificSay(aiResponse, language);
-        }
+        // Generate TTS audio for AI response
+        const audioTag = await this.generateLanguageSpecificSay(aiResponse, language);
         
         const postAIPrompt = language === 'en' ? 
           "Press 1 for another question or press 0 to end the call." :
