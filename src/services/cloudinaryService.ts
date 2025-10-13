@@ -287,7 +287,7 @@ class CloudinaryService {
       }
 
       const url = cloudinary.url(publicId, {
-        resource_type: 'auto',
+        resource_type: 'video', // Audio files are stored as 'video' resource type in Cloudinary
         secure: true,
         transformation: transformations.length > 0 ? transformations.join(',') : undefined
       });
