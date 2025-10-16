@@ -153,10 +153,17 @@ class CloudinaryService {
       }
 
       logger.debug(`Uploading buffer to Cloudinary (${buffer.length} bytes)`);
-      
-      // Convert buffer to base64 data URL for upload
+
+      // Convert buffer to base64 data URL for upload with 15s timeout
       const base64Data = `data:audio/mp3;base64,${buffer.toString('base64')}`;
-      const result = await cloudinary.uploader.upload(base64Data, uploadOptions);
+
+      // Add timeout to prevent hanging uploads
+      const uploadPromise = cloudinary.uploader.upload(base64Data, { ...uploadOptions, timeout: 15000 });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Cloudinary upload timeout (15s)')), 15000)
+      );
+
+      const result = await Promise.race([uploadPromise, timeoutPromise]) as any;
 
       const uploadResult: CloudinaryUploadResult = {
         url: result.url,

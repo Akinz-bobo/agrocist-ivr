@@ -516,6 +516,64 @@ class EngagementService {
       return 0;
     }
   }
+
+  /**
+   * Flush buffered engagement data to database (called when call ends)
+   * This writes all tracked data in one batch operation
+   */
+  async flushEngagementToDatabase(sessionId: string, engagementBuffer: any, phoneNumber: string, startTime: Date): Promise<void> {
+    try {
+      const endTime = new Date();
+      const totalDuration = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+
+      // Create engagement metrics document with all buffered data
+      const metrics = new EngagementMetrics({
+        sessionId: engagementBuffer.engagementSessionId || sessionId,
+        phoneNumber,
+        callId: engagementBuffer.callId || sessionId,
+        callStartTime: startTime,
+        callEndTime: endTime,
+        totalDuration,
+        currentState: engagementBuffer.currentState || IVRState.CALL_ENDED,
+        finalState: engagementBuffer.currentState || IVRState.CALL_ENDED,
+        terminationReason: engagementBuffer.terminationReason || TerminationReason.USER_HANGUP,
+        terminationTime: endTime,
+        completedSuccessfully: engagementBuffer.completedSuccessfully || false,
+        userAgent: engagementBuffer.userAgent,
+        ipAddress: engagementBuffer.ipAddress,
+        stateTransitions: engagementBuffer.stateTransitions || [],
+        selectedLanguage: engagementBuffer.selectedLanguage,
+        languageSelectionTime: engagementBuffer.languageSelectionTime,
+        dtmfInputs: engagementBuffer.dtmfInputs || [],
+        aiInteractions: engagementBuffer.aiInteractionsDetailed || [],
+        totalAIInteractions: (engagementBuffer.aiInteractionsDetailed || []).length,
+        totalRecordingTime: (engagementBuffer.aiInteractionsDetailed || []).reduce(
+          (sum: number, interaction: any) => sum + interaction.userRecordingDuration,
+          0
+        ),
+        averageRecordingLength: (engagementBuffer.aiInteractionsDetailed || []).length > 0
+          ? (engagementBuffer.aiInteractionsDetailed || []).reduce(
+              (sum: number, interaction: any) => sum + interaction.userRecordingDuration,
+              0
+            ) / (engagementBuffer.aiInteractionsDetailed || []).length
+          : 0,
+        wasTransferredToAgent: engagementBuffer.wasTransferredToAgent || false,
+        transferRequestTime: engagementBuffer.transferRequestTime,
+        errorRecords: engagementBuffer.errorRecords || []
+      });
+
+      // Calculate engagement score
+      metrics.calculateEngagementScore();
+
+      // Save to database
+      await metrics.save();
+
+      logger.info(`📊 Flushed engagement data to database: ${sessionId} (${totalDuration}s, score: ${metrics.engagementScore})`);
+    } catch (error) {
+      logger.error(`Failed to flush engagement data for session ${sessionId}:`, error);
+      // Don't throw - we don't want to block call termination if DB write fails
+    }
+  }
 }
 
 export default new EngagementService();

@@ -7,6 +7,46 @@ export interface CallSession {
   startTime: Date;
   menuHistory: string[];
   aiInteractions: AIInteraction[];
+  // Buffered engagement data (written to DB when call ends)
+  engagementBuffer?: {
+    engagementSessionId?: string;
+    callId?: string;
+    userAgent?: string;
+    ipAddress?: string;
+    currentState?: string;
+    stateStartTime?: Date;
+    stateTransitions: Array<{
+      fromState: string;
+      toState: string;
+      timestamp: Date;
+      duration: number;
+      userInput?: string;
+      error?: string;
+    }>;
+    selectedLanguage?: 'en' | 'yo' | 'ha' | 'ig';
+    languageSelectionTime?: Date;
+    dtmfInputs: string[];
+    aiInteractionsDetailed: Array<{
+      timestamp: Date;
+      userRecordingDuration: number;
+      userQuery: string;
+      aiResponse: string;
+      aiProcessingTime: number;
+      ttsGenerationTime: number;
+      language: 'en' | 'yo' | 'ha' | 'ig';
+      confidence?: number;
+    }>;
+    wasTransferredToAgent?: boolean;
+    transferRequestTime?: Date;
+    errorRecords: Array<{
+      timestamp: Date;
+      error: string;
+      state: string;
+      severity: 'low' | 'medium' | 'high';
+    }>;
+    terminationReason?: string;
+    completedSuccessfully?: boolean;
+  };
 }
 
 export interface AIInteraction {

@@ -23,12 +23,21 @@ class SessionManager {
       context: {},
       startTime: new Date(),
       menuHistory: ['welcome'],
-      aiInteractions: []
+      aiInteractions: [],
+      // Initialize engagement buffer for local storage
+      engagementBuffer: {
+        stateTransitions: [],
+        dtmfInputs: [],
+        aiInteractionsDetailed: [],
+        errorRecords: [],
+        currentState: 'CALL_INITIATED',
+        stateStartTime: new Date()
+      }
     };
-    
+
     this.saveSession(session);
     logger.info(`Created new session: ${sessionId} for caller: ${callerNumber}`);
-    
+
     return session;
   }
   
@@ -102,6 +111,116 @@ class SessionManager {
     return this.memoryStore.size;
   }
   
+  // Buffered engagement tracking methods
+  bufferStateTransition(sessionId: string, fromState: string, toState: string, userInput?: string, error?: string): void {
+    const session = this.getSession(sessionId);
+    if (session && session.engagementBuffer) {
+      const now = new Date();
+      const duration = session.engagementBuffer.stateStartTime
+        ? now.getTime() - session.engagementBuffer.stateStartTime.getTime()
+        : 0;
+
+      const transition: any = {
+        fromState,
+        toState,
+        timestamp: now,
+        duration
+      };
+      if (userInput !== undefined) transition.userInput = userInput;
+      if (error !== undefined) transition.error = error;
+
+      session.engagementBuffer.stateTransitions.push(transition);
+
+      session.engagementBuffer.currentState = toState;
+      session.engagementBuffer.stateStartTime = now;
+
+      if (userInput && !session.engagementBuffer.dtmfInputs.includes(userInput)) {
+        session.engagementBuffer.dtmfInputs.push(userInput);
+      }
+
+      this.saveSession(session);
+    }
+  }
+
+  bufferLanguageSelection(sessionId: string, language: 'en' | 'yo' | 'ha' | 'ig'): void {
+    const session = this.getSession(sessionId);
+    if (session && session.engagementBuffer) {
+      session.engagementBuffer.selectedLanguage = language;
+      session.engagementBuffer.languageSelectionTime = new Date();
+      this.saveSession(session);
+    }
+  }
+
+  bufferAIInteraction(
+    sessionId: string,
+    userRecordingDuration: number,
+    userQuery: string,
+    aiResponse: string,
+    aiProcessingTime: number,
+    ttsGenerationTime: number,
+    language: 'en' | 'yo' | 'ha' | 'ig',
+    confidence?: number
+  ): void {
+    const session = this.getSession(sessionId);
+    if (session && session.engagementBuffer) {
+      const interaction: any = {
+        timestamp: new Date(),
+        userRecordingDuration,
+        userQuery,
+        aiResponse,
+        aiProcessingTime,
+        ttsGenerationTime,
+        language
+      };
+      if (confidence !== undefined) interaction.confidence = confidence;
+
+      session.engagementBuffer.aiInteractionsDetailed.push(interaction);
+      this.saveSession(session);
+    }
+  }
+
+  bufferAgentTransfer(sessionId: string): void {
+    const session = this.getSession(sessionId);
+    if (session && session.engagementBuffer) {
+      session.engagementBuffer.wasTransferredToAgent = true;
+      session.engagementBuffer.transferRequestTime = new Date();
+      this.saveSession(session);
+    }
+  }
+
+  bufferError(sessionId: string, error: string, state: string, severity: 'low' | 'medium' | 'high' = 'medium'): void {
+    const session = this.getSession(sessionId);
+    if (session && session.engagementBuffer) {
+      session.engagementBuffer.errorRecords.push({
+        timestamp: new Date(),
+        error,
+        state,
+        severity
+      });
+      this.saveSession(session);
+    }
+  }
+
+  setEngagementMetadata(sessionId: string, metadata: { callId?: string | undefined; userAgent?: string | undefined; ipAddress?: string | undefined; engagementSessionId?: string | undefined }): void {
+    const session = this.getSession(sessionId);
+    if (session && session.engagementBuffer) {
+      if (metadata.callId !== undefined) session.engagementBuffer.callId = metadata.callId;
+      if (metadata.userAgent !== undefined) session.engagementBuffer.userAgent = metadata.userAgent;
+      if (metadata.ipAddress !== undefined) session.engagementBuffer.ipAddress = metadata.ipAddress;
+      if (metadata.engagementSessionId !== undefined) session.engagementBuffer.engagementSessionId = metadata.engagementSessionId;
+      this.saveSession(session);
+    }
+  }
+
+  setTerminationInfo(sessionId: string, reason: string, completedSuccessfully: boolean): void {
+    const session = this.getSession(sessionId);
+    if (session && session.engagementBuffer) {
+      session.engagementBuffer.terminationReason = reason;
+      session.engagementBuffer.completedSuccessfully = completedSuccessfully;
+      this.saveSession(session);
+    }
+  }
+
   // Cleanup method for graceful shutdown
   destroy(): void {
     if (this.cleanupInterval) {

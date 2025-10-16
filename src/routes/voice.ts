@@ -13,6 +13,9 @@ router.post('/', voiceController.handleIncomingCall);
 // Language selection endpoint
 router.post('/language', voiceController.handleLanguageSelection);
 
+// Language timeout endpoint (for handling timeout on language selection)
+router.post('/language-timeout', voiceController.handleLanguageTimeout);
+
 // Recording endpoint for voice input (AI processing)
 router.post('/recording', voiceController.handleRecording);
 

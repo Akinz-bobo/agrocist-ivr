@@ -23,7 +23,7 @@ class TTSService {
   /**
    * Generate AI audio - simplified single function
    */
-  async generateAIAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig'): Promise<string> {
+  async generateAIAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig', speed: number = 0.9): Promise<string> {
     try {
       // Get authentication token
       const token = await this.authenticateDSN();
@@ -36,12 +36,13 @@ class TTSService {
         throw new Error(`No voice configuration found for language: ${language}`);
       }
 
-      // Create form data for DSN API request
+      // Create form data for DSN API request with speed control
       const formData = new FormData();
       formData.append('text', text);
       formData.append('language', voiceConfig.language);
       formData.append('voice', voiceConfig.voiceId);
       formData.append('format', 'mp3');
+      formData.append('speed', speed.toString()); // Control playback speed (0.5-2.0, default 0.9 for slower, clearer speech)
 
       // Make request to DSN TTS API
       const response = await axios({
@@ -84,6 +85,69 @@ class TTSService {
       return dataUrl;
 
     } catch (error: any) {
+      // If we get a 403, token might be expired - try re-authenticating once
+      if (error.response?.status === 403) {
+        logger.warn(`403 Forbidden from DSN API - token may be expired, attempting re-authentication...`);
+
+        // Clear cached token to force re-authentication
+        this.authToken = null;
+        this.tokenExpiry = null;
+
+        // Try one more time with fresh token
+        try {
+          const newToken = await this.authenticateDSN();
+          if (!newToken) {
+            throw new Error('Re-authentication failed');
+          }
+
+          // Retry the TTS request with new token
+          const voiceConfig = this.voiceConfigs[language];
+          const formData = new FormData();
+          formData.append('text', text);
+          formData.append('language', voiceConfig.language);
+          formData.append('voice', voiceConfig.voiceId);
+          formData.append('format', 'mp3');
+          formData.append('speed', speed.toString());
+
+          const response = await axios({
+            method: 'POST',
+            url: `${config.dsn.baseUrl}/api/v1/ai/spitch/text-to-speech`,
+            data: formData,
+            headers: {
+              ...formData.getHeaders(),
+              'Authorization': `Bearer ${newToken}`
+            },
+            responseType: 'arraybuffer',
+            timeout: 30000
+          });
+
+          const buffer = Buffer.from(response.data);
+          logger.info(`✅ TTS successful after re-authentication: ${buffer.length} bytes`);
+
+          // Upload to Cloudinary
+          if (cloudinaryService.isEnabled()) {
+            const publicId = cloudinaryService.generatePublicId(text, language, 'dynamic');
+            const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(buffer, {
+              publicId,
+              folder: config.cloudinary.folder
+            });
+
+            if (cloudinaryResult) {
+              logger.info(`✅ Uploaded AI audio to Cloudinary after retry: ${cloudinaryResult.secureUrl}`);
+              return cloudinaryResult.secureUrl;
+            }
+          }
+
+          // Fallback to data URL
+          const base64 = buffer.toString('base64');
+          return `data:audio/mp3;base64,${base64}`;
+
+        } catch (retryError: any) {
+          logger.error(`Failed to generate AI audio after re-authentication:`, retryError.message || 'Unknown error');
+          throw new Error(`AI audio generation failed after retry: ${retryError.message || 'Unknown error'}`);
+        }
+      }
+
       logger.error(`Failed to generate AI audio for ${language}:`, error.message || 'Unknown error');
       throw new Error(`AI audio generation failed: ${error.message || 'Unknown error'}`);
     }

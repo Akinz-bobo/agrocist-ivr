@@ -220,10 +220,11 @@ class AfricasTalkingService {
     // Generate multi-language welcome message with appropriate voices
     const welcomeXML = await this.generateMultiLanguageWelcome();
 
-    // Put audio INSIDE GetDigits with proper formatting
+    // Put audio INSIDE GetDigits with proper formatting, add Redirect for timeout handling
     return `<GetDigits timeout="2" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language">
 ${welcomeXML}
-  </GetDigits>`;
+  </GetDigits>
+  <Redirect>${config.webhook.baseUrl}/voice/language</Redirect>`;
   }
 
   /**

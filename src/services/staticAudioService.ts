@@ -15,6 +15,7 @@ export interface StaticAudioTexts {
   postAIMenu: string;
   noInputMessage: string;
   transfer: string;
+  languageTimeout: string;
 }
 
 class StaticAudioService {
@@ -30,7 +31,8 @@ class StaticAudioService {
       followUpRecording: "What else can I help you with?",
       postAIMenu: "Press 1 for another question or press 0 to end the call.",
       noInputMessage: "We did not receive your selection. Let me repeat the options.",
-      transfer: "Please hold while I connect you to one of our veterinary experts."
+      transfer: "Please hold while I connect you to one of our veterinary experts.",
+      languageTimeout: "We did not receive your language selection. Press 7 to hear the options again, or press 0 to end the call."
     },
     yo: {
       welcome: "Ẹ káàbọ̀ sí Agrocist, alábáṣepọ̀ òwe ẹranko tí ẹ lè gbẹ́kẹ̀lé. Ẹ tẹ́ ọ̀kan fún Gẹ̀ẹ́sì, méjì fún Yorùbá, mẹ́ta fún Hausa, tàbí mẹ́rin fún Igbo.",
@@ -43,7 +45,8 @@ class StaticAudioService {
       followUpRecording: "Kíni mìíràn tí mo lè ṣe fún yín?",
       postAIMenu: "Ẹ tẹ́ ọ̀kan fún ìbéèrè mìíràn tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
       noInputMessage: "A kò gbọ́ àṣàyàn yín. Ẹ jẹ́ kí n tún àwọn àṣàyàn náà sọ.",
-      transfer: "Ẹ dúró síbẹ̀ kí n so yín mọ́ ọ̀kan lára àwọn amọ̀ràn oníwòsàn ẹranko wa."
+      transfer: "Ẹ dúró síbẹ̀ kí n so yín mọ́ ọ̀kan lára àwọn amọ̀ràn oníwòsàn ẹranko wa.",
+      languageTimeout: "A kò gbọ́ àṣàyàn èdè yín. Ẹ tẹ́ méje láti tún gbọ́ àwọn àṣàyàn náà, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà."
     },
     ha: {
       welcome: "Maraba da zuwa Agrocist, abokin gona na kiwo da za ku iya dogara da shi. Danna 1 don Turanci, 2 don Yoruba, 3 don Hausa, ko 4 don Igbo.",
@@ -56,7 +59,8 @@ class StaticAudioService {
       followUpRecording: "Me kuma zan iya taimaka muku da shi?",
       postAIMenu: "Danna 1 don wata tambaya ko danna 0 don kammala kiran.",
       noInputMessage: "Ba mu karɓi zaɓin ku ba. Bari in sake maimaita zaɓukan.",
-      transfer: "Don Allah ku jira yayin da nake haɗa ku da ɗaya daga cikin ƙwararrun likitocin dabbobinmu."
+      transfer: "Don Allah ku jira yayin da nake haɗa ku da ɗaya daga cikin ƙwararrun likitocin dabbobinmu.",
+      languageTimeout: "Ba mu karɓi zaɓin harshe ku ba. Danna 7 don sake jin zaɓukan, ko danna 0 don kammala kiran."
     },
     ig: {
       welcome: "Nnọọ na Agrocist, onye enyi gị n'ọrụ anụmanụ ị nwere ike ịdabere na ya. Pịa 1 maka Bekee, 2 maka Yoruba, 3 maka Hausa, ma ọ bụ 4 maka Igbo.",
@@ -69,7 +73,8 @@ class StaticAudioService {
       followUpRecording: "Gịnị ọzọ ka m nwere ike inyere gị aka?",
       postAIMenu: "Pịa 1 maka ajụjụ ọzọ ma ọ bụ pịa 0 iji kwụsị oku a.",
       noInputMessage: "Anyị anatabeghị nhọrọ gị. Ka m kwughachi nhọrọ ndị ahụ.",
-      transfer: "Biko chere ka m jikọọ gị na otu n'ime ndị ọkachamara veterinary anyị."
+      transfer: "Biko chere ka m jikọọ gị na otu n'ime ndị ọkachamara veterinary anyị.",
+      languageTimeout: "Anyị anatabeghị nhọrọ asụsụ gị. Pịa 7 ka ịnụ nhọrọ ndị ahụ ọzọ, ma ọ bụ pịa 0 iji kwụsị oku a."
     }
   };
 

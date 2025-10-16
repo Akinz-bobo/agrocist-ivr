@@ -15,14 +15,20 @@ class DatabaseConnection {
     }
 
     try {
-      // Set mongoose options
+      // Set mongoose options with better stability settings
       const options = {
         maxPoolSize: 10,
-        serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 45000,
+        minPoolSize: 2,
+        serverSelectionTimeoutMS: 30000, // Increased from 5s to 30s
+        socketTimeoutMS: 60000, // Increased from 45s to 60s
+        connectTimeoutMS: 30000, // Added connection timeout
+        heartbeatFrequencyMS: 10000, // Check connection every 10s
         family: 4, // Use IPv4, skip trying IPv6
         retryWrites: true,
-        w: 'majority' as const
+        retryReads: true,
+        w: 'majority' as const,
+        maxIdleTimeMS: 60000, // Close idle connections after 60s
+        compressors: ['zlib' as const] // Enable compression
       };
 
       // Connect to MongoDB
@@ -31,21 +37,28 @@ class DatabaseConnection {
       this.isConnected = true;
       logger.info(`📊 Connected to MongoDB: ${this.maskUri(config.database.mongoUri)}`);
 
-      // Handle connection events
-      mongoose.connection.on('error', (error) => {
-        logger.error('MongoDB connection error:', error);
-        this.isConnected = false;
-      });
+      // Only set up event handlers once
+      if (mongoose.connection.listenerCount('error') === 0) {
+        mongoose.connection.on('error', (error) => {
+          logger.error('MongoDB connection error:', error);
+          this.isConnected = false;
+        });
 
-      mongoose.connection.on('disconnected', () => {
-        logger.warn('MongoDB disconnected');
-        this.isConnected = false;
-      });
+        mongoose.connection.on('disconnected', () => {
+          logger.warn('MongoDB disconnected - will auto-reconnect');
+          this.isConnected = false;
+        });
 
-      mongoose.connection.on('reconnected', () => {
-        logger.info('MongoDB reconnected');
-        this.isConnected = true;
-      });
+        mongoose.connection.on('reconnected', () => {
+          logger.info('MongoDB reconnected successfully');
+          this.isConnected = true;
+        });
+
+        mongoose.connection.on('connected', () => {
+          logger.info('MongoDB connected');
+          this.isConnected = true;
+        });
+      }
 
     } catch (error) {
       logger.error('Failed to connect to MongoDB:', error);
