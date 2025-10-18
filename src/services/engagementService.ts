@@ -1,10 +1,11 @@
-import EngagementMetrics, { 
-  IEngagementMetrics, 
-  IVRState, 
-  TerminationReason, 
-  StateTransition, 
-  AIInteraction 
+import EngagementMetrics, {
+  IEngagementMetrics,
+  IVRState,
+  TerminationReason,
+  StateTransition,
+  AIInteraction
 } from '../models/EngagementMetrics';
+import Conversation from '../models/Conversation';
 import logger from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -526,49 +527,37 @@ class EngagementService {
       const endTime = new Date();
       const totalDuration = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
 
-      // Create engagement metrics document with all buffered data
-      const metrics = new EngagementMetrics({
-        sessionId: engagementBuffer.engagementSessionId || sessionId,
+      // Extract interactions from engagement buffer
+      const interactions = (engagementBuffer.aiInteractionsDetailed || []).map((interaction: any) => ({
+        userQuery: interaction.userQuery || '',
+        aiResponse: interaction.aiResponse || '',
+        timestamp: interaction.timestamp || new Date()
+      }));
+
+      // Create simplified conversation document
+      const conversation = new Conversation({
+        sessionId,
         phoneNumber,
-        callId: engagementBuffer.callId || sessionId,
+        language: engagementBuffer.selectedLanguage || 'en',
         callStartTime: startTime,
         callEndTime: endTime,
-        totalDuration,
-        currentState: engagementBuffer.currentState || IVRState.CALL_ENDED,
-        finalState: engagementBuffer.currentState || IVRState.CALL_ENDED,
-        terminationReason: engagementBuffer.terminationReason || TerminationReason.USER_HANGUP,
-        terminationTime: endTime,
-        completedSuccessfully: engagementBuffer.completedSuccessfully || false,
-        userAgent: engagementBuffer.userAgent,
-        ipAddress: engagementBuffer.ipAddress,
-        stateTransitions: engagementBuffer.stateTransitions || [],
-        selectedLanguage: engagementBuffer.selectedLanguage,
-        languageSelectionTime: engagementBuffer.languageSelectionTime,
-        dtmfInputs: engagementBuffer.dtmfInputs || [],
-        aiInteractions: engagementBuffer.aiInteractionsDetailed || [],
-        totalAIInteractions: (engagementBuffer.aiInteractionsDetailed || []).length,
-        totalRecordingTime: (engagementBuffer.aiInteractionsDetailed || []).reduce(
-          (sum: number, interaction: any) => sum + interaction.userRecordingDuration,
-          0
-        ),
-        averageRecordingLength: (engagementBuffer.aiInteractionsDetailed || []).length > 0
-          ? (engagementBuffer.aiInteractionsDetailed || []).reduce(
-              (sum: number, interaction: any) => sum + interaction.userRecordingDuration,
-              0
-            ) / (engagementBuffer.aiInteractionsDetailed || []).length
-          : 0,
-        wasTransferredToAgent: engagementBuffer.wasTransferredToAgent || false,
-        transferRequestTime: engagementBuffer.transferRequestTime,
-        errorRecords: engagementBuffer.errorRecords || []
+        duration: totalDuration,
+        interactions
       });
 
-      // Calculate engagement score
-      metrics.calculateEngagementScore();
-
       // Save to database
-      await metrics.save();
+      await conversation.save();
 
-      logger.info(`📊 Flushed engagement data to database: ${sessionId} (${totalDuration}s, score: ${metrics.engagementScore})`);
+      logger.info(`💾 Saved conversation to database: ${sessionId}`);
+      logger.info(`📞 Session: ${phoneNumber} | Language: ${conversation.language} | Duration: ${totalDuration}s`);
+      logger.info(`💬 Interactions: ${interactions.length}`);
+
+      // Log each interaction
+      interactions.forEach((interaction: any, index: number) => {
+        logger.info(`  [${index + 1}] User: "${interaction.userQuery}"`);
+        logger.info(`      AI: "${interaction.aiResponse}"`);
+      });
+
     } catch (error) {
       logger.error(`Failed to flush engagement data for session ${sessionId}:`, error);
       // Don't throw - we don't want to block call termination if DB write fails

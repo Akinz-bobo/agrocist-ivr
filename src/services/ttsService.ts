@@ -63,15 +63,15 @@ class TTSService {
 
       // Upload to Cloudinary if enabled
       if (cloudinaryService.isEnabled()) {
-        const publicId = cloudinaryService.generatePublicId(text, language, 'dynamic');
-        
+        // IMPORTANT: Do NOT provide publicId for dynamic AI responses - let Cloudinary generate unique filenames
+        // This prevents caching and ensures each AI response gets fresh audio (no reuse)
         const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(buffer, {
-          publicId,
-          folder: config.cloudinary.folder
+          folder: config.cloudinary.folder,
+          filename: `ai-response-${Date.now()}`
         });
 
         if (cloudinaryResult) {
-          logger.info(`✅ Uploaded AI audio to Cloudinary: ${cloudinaryResult.secureUrl}`);
+          logger.info(`✅ Uploaded fresh AI audio to Cloudinary (no cache): ${cloudinaryResult.secureUrl}`);
           return cloudinaryResult.secureUrl;
         } else {
           logger.warn('Cloudinary upload failed, falling back to data URL');
@@ -126,14 +126,14 @@ class TTSService {
 
           // Upload to Cloudinary
           if (cloudinaryService.isEnabled()) {
-            const publicId = cloudinaryService.generatePublicId(text, language, 'dynamic');
+            // Do NOT provide publicId - ensure fresh upload every time
             const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(buffer, {
-              publicId,
-              folder: config.cloudinary.folder
+              folder: config.cloudinary.folder,
+              filename: `ai-response-${Date.now()}`
             });
 
             if (cloudinaryResult) {
-              logger.info(`✅ Uploaded AI audio to Cloudinary after retry: ${cloudinaryResult.secureUrl}`);
+              logger.info(`✅ Uploaded fresh AI audio to Cloudinary after retry (no cache): ${cloudinaryResult.secureUrl}`);
               return cloudinaryResult.secureUrl;
             }
           }

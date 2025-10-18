@@ -179,6 +179,17 @@ class SessionManager {
     }
   }
 
+  updateLastInteractionTTSTime(sessionId: string, ttsGenerationTime: number): void {
+    const session = this.getSession(sessionId);
+    if (session && session.engagementBuffer && session.engagementBuffer.aiInteractionsDetailed.length > 0) {
+      const lastInteraction = session.engagementBuffer.aiInteractionsDetailed[session.engagementBuffer.aiInteractionsDetailed.length - 1];
+      if (lastInteraction) {
+        lastInteraction.ttsGenerationTime = ttsGenerationTime;
+        this.saveSession(session);
+      }
+    }
+  }
+
   bufferAgentTransfer(sessionId: string): void {
     const session = this.getSession(sessionId);
     if (session && session.engagementBuffer) {
