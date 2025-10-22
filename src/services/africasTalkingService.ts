@@ -325,7 +325,7 @@ ${welcomeXML}
   /**
    * Generate TTS audio for text in specified language
    */
-  async generateTTSAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig'): Promise<string | null> {
+  async generateTTSAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig', phoneNumber: string = 'unknown'): Promise<string | null> {
     try {
       // Check if we should use Say only for testing
       if (config.testing.useSayOnly) {
@@ -335,8 +335,8 @@ ${welcomeXML}
 
       // Force English only if testing flag is set
       const actualLanguage = config.testing.forceEnglishOnly ? 'en' : language;
-      
-      const result = await ttsService.generateAIAudio(text, actualLanguage);
+
+      const result = await ttsService.generateAIAudio(text, actualLanguage, phoneNumber);
       // TTS succeeded, mark as available
       this.ttsAvailable = true;
       return result;

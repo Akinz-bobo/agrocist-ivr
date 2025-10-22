@@ -3,6 +3,11 @@ import FormData from 'form-data';
 import config from '../config';
 import logger from '../utils/logger';
 import cloudinaryService from './cloudinaryService';
+import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
+
+const elevenlabs = new ElevenLabsClient({
+  apiKey: process.env.ELEVENLABS_API_KEY,
+});
 
 export interface TTSOptions {
   language: 'en' | 'yo' | 'ha' | 'ig';
@@ -21,8 +26,119 @@ class TTSService {
   };
 
   /**
-   * Generate AI audio - simplified single function
+   * Generate AI audio using ElevenLabs - with user identification
    */
+  async generateAIAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig', phoneNumber: string, speed: number = 0.9): Promise<string> {
+    try {
+      logger.info(`🎙️ Generating ElevenLabs audio for ${phoneNumber} in ${language}`);
+
+      // Generate TTS audio buffer using ElevenLabs
+      const audioBuffer = await this.generateElevenLabsBuffer(text, language);
+      if (!audioBuffer) {
+        throw new Error('Failed to generate audio buffer from ElevenLabs');
+      }
+
+      // Upload to Cloudinary if enabled with user-specific filename
+      if (cloudinaryService.isEnabled()) {
+        const timestamp = Date.now();
+        const filename = `dynamic_eleven_${phoneNumber}_${language}_${timestamp}`;
+
+        const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(audioBuffer, {
+          folder: `${config.cloudinary.folder}/dynamic`,
+          filename: filename
+        });
+
+        if (cloudinaryResult) {
+          logger.info(`✅ Uploaded ElevenLabs audio to Cloudinary: ${cloudinaryResult.secureUrl}`);
+          return cloudinaryResult.secureUrl;
+        } else {
+          logger.warn('Cloudinary upload failed, falling back to data URL');
+        }
+      }
+
+      // Fallback to data URL if Cloudinary is disabled or upload failed
+      const base64 = audioBuffer.toString('base64');
+      const dataUrl = `data:audio/mp3;base64,${base64}`;
+      logger.info(`Generated data URL for ElevenLabs audio (${audioBuffer.length} bytes)`);
+      return dataUrl;
+
+    } catch (error: any) {
+      logger.error(`Failed to generate ElevenLabs audio for ${language}:`, error.message || 'Unknown error');
+      throw new Error(`ElevenLabs audio generation failed: ${error.message || 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Generate TTS audio buffer using ElevenLabs API
+   */
+  private async generateElevenLabsBuffer(
+    text: string,
+    language: 'en' | 'yo' | 'ha' | 'ig'
+  ): Promise<Buffer | null> {
+    logger.debug(
+      `🔍 ElevenLabs TTS Request - Language: ${language}, Text: "${text}" (length: ${text?.length || 0})`
+    );
+
+    if (!text || text.trim() === '') {
+      logger.error(
+        `❌ Empty text provided for ElevenLabs TTS: language=${language}, text="${text}"`
+      );
+      return null;
+    }
+
+    try {
+      // Voice configurations for different languages
+      const voiceConfigs: Record<string, { voiceId: string }> = {
+        en: { voiceId: process.env.ELEVENLABS_VOICE_ID_EN || '21m00Tcm4TlvDq8ikWAM' },
+        yo: { voiceId: process.env.ELEVENLABS_VOICE_ID_YO || '21m00Tcm4TlvDq8ikWAM' },
+        ha: { voiceId: process.env.ELEVENLABS_VOICE_ID_HA || '21m00Tcm4TlvDq8ikWAM' },
+        ig: { voiceId: process.env.ELEVENLABS_VOICE_ID_IG || '21m00Tcm4TlvDq8ikWAM' }
+      };
+
+      const voiceConfig = voiceConfigs[language];
+      if (!voiceConfig) {
+        logger.warn(`No voice configuration found for language: ${language}`);
+        return null;
+      }
+
+      // Generate audio using ElevenLabs SDK
+      const audioStream = await elevenlabs.textToSpeech.convert('V0PuVTP8lJVnkKNavZmc', {
+        text,
+        modelId: 'eleven_multilingual_v2',
+        outputFormat: 'mp3_44100_128',
+      });
+
+      // Convert ReadableStream to Buffer
+      const chunks: Buffer[] = [];
+      for await (const chunk of audioStream) {
+        chunks.push(Buffer.from(chunk));
+      }
+      const buffer = Buffer.concat(chunks);
+
+      logger.info(`✅ ElevenLabs audio generated: ${buffer.length} bytes`);
+      return buffer;
+
+    } catch (error: any) {
+      logger.error(`ElevenLabs TTS failed for ${language}:`, {
+        message: error.message,
+        statusCode: error.statusCode,
+        code: error.code,
+      });
+
+      if (error.statusCode === 401 || error.message?.includes('401')) {
+        logger.error(`ElevenLabs API authentication failed - check API key`);
+      } else if (error.statusCode === 429 || error.message?.includes('429')) {
+        logger.warn(`ElevenLabs API rate limit exceeded for ${language}`);
+      }
+
+      return null;
+    }
+  }
+
+  /**
+   * Generate AI audio using DSN - COMMENTED OUT (replaced by ElevenLabs)
+   */
+  /*
   async generateAIAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig', speed: number = 0.9): Promise<string> {
     try {
       // Get authentication token
@@ -152,9 +268,10 @@ class TTSService {
       throw new Error(`AI audio generation failed: ${error.message || 'Unknown error'}`);
     }
   }
+  */
 
   /**
-   * Authenticate with DSN API and get Bearer token
+   * Authenticate with DSN API and get Bearer token - KEPT FOR REFERENCE
    */
   async authenticateDSN(): Promise<string | null> {
     try {

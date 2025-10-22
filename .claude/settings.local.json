@@ -11,7 +11,8 @@
       "Bash(npx tsc:*)",
       "Bash(npm run build:*)",
       "Bash(npx eslint:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(npm start)"
     ],
     "deny": [],
     "ask": []

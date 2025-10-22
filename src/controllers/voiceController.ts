@@ -368,11 +368,13 @@ class VoiceController {
             const goodbyeMessage = this.getGoodbyeMessage(
               selectedLanguage as "en" | "yo" | "ha" | "ig"
             );
+            const callerNumber = webhookData.callerNumber || 'unknown';
             responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${await this.generateLanguageSpecificSay(
     goodbyeMessage,
-    selectedLanguage as "en" | "yo" | "ha" | "ig"
+    selectedLanguage as "en" | "yo" | "ha" | "ig",
+    callerNumber
   )}
 </Response>`;
             break;
@@ -980,13 +982,15 @@ class VoiceController {
    */
   private async generateLanguageSpecificSay(
     text: string,
-    language: "en" | "yo" | "ha" | "ig"
+    language: "en" | "yo" | "ha" | "ig",
+    phoneNumber?: string
   ): Promise<string> {
     try {
       // This is for dynamic AI responses only - static messages use staticAudioService directly
       const audioUrl = await africasTalkingService.generateTTSAudio(
         text,
-        language
+        language,
+        phoneNumber || 'unknown'
       );
       if (audioUrl) {
         return `<Play url="${audioUrl}"/>`;
@@ -1109,10 +1113,13 @@ class VoiceController {
     try {
       const startTime = Date.now();
 
-      // Clear any previous TTS cache to prevent reuse from earlier questions
+      // Clear any previous AI response and TTS cache to prevent reuse from earlier questions
       sessionManager.updateSessionContext(sessionId, {
         preGeneratedAudioTag: undefined,
-        ttsGenerating: false
+        ttsGenerating: false,
+        aiResponse: undefined,
+        aiReady: false,
+        ttsGenerationFailed: false
       });
 
       // 1. Transcribe audio
@@ -1207,7 +1214,8 @@ class VoiceController {
       );
 
       const ttsStartTime = Date.now();
-      this.generateLanguageSpecificSay(truncatedResponse, language)
+      const callerNumber = session?.callerNumber || 'unknown';
+      this.generateLanguageSpecificSay(truncatedResponse, language, callerNumber)
         .then((audioTag) => {
           const ttsTime = Date.now() - ttsStartTime;
           sessionManager.updateSessionContext(sessionId, {
@@ -1348,7 +1356,8 @@ class VoiceController {
             );
             audioTag = await this.generateLanguageSpecificSay(
               aiResponse,
-              language
+              language,
+              session.callerNumber
             );
           }
         } else {
@@ -1358,7 +1367,8 @@ class VoiceController {
           );
           audioTag = await this.generateLanguageSpecificSay(
             aiResponse,
-            language
+            language,
+            session.callerNumber
           );
           const ttsTime = Date.now() - ttsStartTime;
           logger.info(
