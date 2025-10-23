@@ -1,16 +1,19 @@
-import axios from 'axios';
-import FormData from 'form-data';
-import config from '../config';
-import logger from '../utils/logger';
-import cloudinaryService from './cloudinaryService';
-import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
+import axios from "axios";
+import FormData from "form-data";
+import config from "../config";
+import logger from "../utils/logger";
+import cloudinaryService from "./cloudinaryService";
+import Spitch from "spitch";
+// import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 
-const elevenlabs = new ElevenLabsClient({
-  apiKey: process.env.ELEVENLABS_API_KEY,
-});
+// const elevenlabs = new ElevenLabsClient({
+//   apiKey: process.env.ELEVENLABS_API_KEY,
+// });
+
+const spitch = new Spitch({ apiKey: process.env.SPITCH_API_KEY });
 
 export interface TTSOptions {
-  language: 'en' | 'yo' | 'ha' | 'ig';
+  language: "en" | "yo" | "ha" | "ig";
 }
 
 class TTSService {
@@ -19,121 +22,204 @@ class TTSService {
 
   // Voice configurations for each language using DSN service
   private voiceConfigs = {
-    en: { voiceId: 'lucy', language: 'en' },
-    yo: { voiceId: 'sade', language: 'yo' },
-    ha: { voiceId: 'zainab', language: 'ha' },
-    ig: { voiceId: 'amara', language: 'ig' }
+    en: { voiceId: "lucy", language: "en" },
+    yo: { voiceId: "sade", language: "yo" },
+    ha: { voiceId: "zainab", language: "ha" },
+    ig: { voiceId: "amara", language: "ig" },
   };
 
   /**
-   * Generate AI audio using ElevenLabs - with user identification
+   * Generate AI audio using Spitch - with user identification
    */
-  async generateAIAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig', phoneNumber: string, speed: number = 0.9): Promise<string> {
+  async generateAIAudio(
+    text: string,
+    language: "en" | "yo" | "ha" | "ig",
+    phoneNumber: string,
+    speed: number = 0.9
+  ): Promise<string> {
     try {
-      logger.info(`🎙️ Generating ElevenLabs audio for ${phoneNumber} in ${language}`);
+      logger.info(
+        `🎙️ Generating Spitch audio for ${phoneNumber} in ${language}`
+      );
 
-      // Generate TTS audio buffer using ElevenLabs
-      const audioBuffer = await this.generateElevenLabsBuffer(text, language);
+      // Generate TTS audio buffer using Spitch
+      const audioBuffer = await this.generateSpitchBuffer(text, language);
       if (!audioBuffer) {
-        throw new Error('Failed to generate audio buffer from ElevenLabs');
+        throw new Error("Failed to generate audio buffer from Spitch");
       }
 
       // Upload to Cloudinary if enabled with user-specific filename
       if (cloudinaryService.isEnabled()) {
         const timestamp = Date.now();
-        const filename = `dynamic_eleven_${phoneNumber}_${language}_${timestamp}`;
+        const filename = `dynamic_spitch_${phoneNumber}_${language}_${timestamp}`;
 
-        const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(audioBuffer, {
-          folder: `${config.cloudinary.folder}/dynamic`,
-          filename: filename
-        });
+        const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(
+          audioBuffer,
+          {
+            folder: `${config.cloudinary.folder}/dynamic`,
+            filename: filename,
+          }
+        );
 
         if (cloudinaryResult) {
-          logger.info(`✅ Uploaded ElevenLabs audio to Cloudinary: ${cloudinaryResult.secureUrl}`);
+          logger.info(
+            `✅ Uploaded Spitch audio to Cloudinary: ${cloudinaryResult.secureUrl}`
+          );
           return cloudinaryResult.secureUrl;
         } else {
-          logger.warn('Cloudinary upload failed, falling back to data URL');
+          logger.warn("Cloudinary upload failed, falling back to data URL");
         }
       }
 
       // Fallback to data URL if Cloudinary is disabled or upload failed
-      const base64 = audioBuffer.toString('base64');
-      const dataUrl = `data:audio/mp3;base64,${base64}`;
-      logger.info(`Generated data URL for ElevenLabs audio (${audioBuffer.length} bytes)`);
+      const base64 = audioBuffer.toString("base64");
+      const dataUrl = `data:audio/wav;base64,${base64}`;
+      logger.info(
+        `Generated data URL for Spitch audio (${audioBuffer.length} bytes)`
+      );
       return dataUrl;
-
     } catch (error: any) {
-      logger.error(`Failed to generate ElevenLabs audio for ${language}:`, error.message || 'Unknown error');
-      throw new Error(`ElevenLabs audio generation failed: ${error.message || 'Unknown error'}`);
+      logger.error(
+        `Failed to generate Spitch audio for ${language}:`,
+        error.message || "Unknown error"
+      );
+      throw new Error(
+        `Spitch audio generation failed: ${error.message || "Unknown error"}`
+      );
     }
   }
 
   /**
-   * Generate TTS audio buffer using ElevenLabs API
+   * Generate TTS audio buffer using Spitch API
    */
-  private async generateElevenLabsBuffer(
+  private async generateSpitchBuffer(
     text: string,
-    language: 'en' | 'yo' | 'ha' | 'ig'
+    language: "en" | "yo" | "ha" | "ig"
   ): Promise<Buffer | null> {
     logger.debug(
-      `🔍 ElevenLabs TTS Request - Language: ${language}, Text: "${text}" (length: ${text?.length || 0})`
+      `🔍 Spitch TTS Request - Language: ${language}, Text: "${text}" (length: ${
+        text?.length || 0
+      })`
     );
 
-    if (!text || text.trim() === '') {
+    if (!text || text.trim() === "") {
       logger.error(
-        `❌ Empty text provided for ElevenLabs TTS: language=${language}, text="${text}"`
+        `❌ Empty text provided for Spitch TTS: language=${language}, text="${text}"`
       );
       return null;
     }
 
     try {
       // Voice configurations for different languages
-      const voiceConfigs: Record<string, { voiceId: string }> = {
-        en: { voiceId: process.env.ELEVENLABS_VOICE_ID_EN || '21m00Tcm4TlvDq8ikWAM' },
-        yo: { voiceId: process.env.ELEVENLABS_VOICE_ID_YO || '21m00Tcm4TlvDq8ikWAM' },
-        ha: { voiceId: process.env.ELEVENLABS_VOICE_ID_HA || '21m00Tcm4TlvDq8ikWAM' },
-        ig: { voiceId: process.env.ELEVENLABS_VOICE_ID_IG || '21m00Tcm4TlvDq8ikWAM' }
+      const voiceConfigs = {
+        en: "lucy" as const,
+        yo: "sade" as const,
+        ha: "zainab" as const,
+        ig: "amara" as const,
       };
 
-      const voiceConfig = voiceConfigs[language];
-      if (!voiceConfig) {
+      const voiceId = voiceConfigs[language];
+      if (!voiceId) {
         logger.warn(`No voice configuration found for language: ${language}`);
         return null;
       }
 
-      // Generate audio using ElevenLabs SDK
-      const audioStream = await elevenlabs.textToSpeech.convert('V0PuVTP8lJVnkKNavZmc', {
-        text,
-        modelId: 'eleven_multilingual_v2',
-        outputFormat: 'mp3_44100_128',
+      // Generate audio using Spitch SDK
+      const res = await spitch.speech.generate({
+        text: text,
+        language: language,
+        voice: voiceId,
+        format: "wav",
       });
 
-      // Convert ReadableStream to Buffer
-      const chunks: Buffer[] = [];
-      for await (const chunk of audioStream) {
-        chunks.push(Buffer.from(chunk));
-      }
-      const buffer = Buffer.concat(chunks);
+      const blob = await res.blob();
+      const buffer = Buffer.from(await blob.arrayBuffer());
 
-      logger.info(`✅ ElevenLabs audio generated: ${buffer.length} bytes`);
+      logger.info(`✅ Spitch audio generated: ${buffer.length} bytes`);
       return buffer;
-
     } catch (error: any) {
-      logger.error(`ElevenLabs TTS failed for ${language}:`, {
+      logger.error(`Spitch TTS failed for ${language}:`, {
         message: error.message,
         statusCode: error.statusCode,
         code: error.code,
       });
 
-      if (error.statusCode === 401 || error.message?.includes('401')) {
-        logger.error(`ElevenLabs API authentication failed - check API key`);
-      } else if (error.statusCode === 429 || error.message?.includes('429')) {
-        logger.warn(`ElevenLabs API rate limit exceeded for ${language}`);
+      if (error.statusCode === 401 || error.message?.includes("401")) {
+        logger.error(`Spitch API authentication failed - check API key`);
+      } else if (error.statusCode === 429 || error.message?.includes("429")) {
+        logger.warn(`Spitch API rate limit exceeded for ${language}`);
       }
 
       return null;
     }
   }
+
+  /**
+   * COMMENTED OUT - ElevenLabs TTS Implementation
+   */
+  // private async generateElevenLabsBuffer(
+  //   text: string,
+  //   language: 'en' | 'yo' | 'ha' | 'ig'
+  // ): Promise<Buffer | null> {
+  //   logger.debug(
+  //     `🔍 ElevenLabs TTS Request - Language: ${language}, Text: "${text}" (length: ${text?.length || 0})`
+  //   );
+  //
+  //   if (!text || text.trim() === '') {
+  //     logger.error(
+  //       `❌ Empty text provided for ElevenLabs TTS: language=${language}, text="${text}"`
+  //     );
+  //     return null;
+  //   }
+  //
+  //   try {
+  //     // Voice configurations for different languages
+  //     const voiceConfigs: Record<string, { voiceId: string }> = {
+  //       en: { voiceId: process.env.ELEVENLABS_VOICE_ID_EN || '21m00Tcm4TlvDq8ikWAM' },
+  //       yo: { voiceId: process.env.ELEVENLABS_VOICE_ID_YO || '21m00Tcm4TlvDq8ikWAM' },
+  //       ha: { voiceId: process.env.ELEVENLABS_VOICE_ID_HA || '21m00Tcm4TlvDq8ikWAM' },
+  //       ig: { voiceId: process.env.ELEVENLABS_VOICE_ID_IG || '21m00Tcm4TlvDq8ikWAM' }
+  //     };
+  //
+  //     const voiceConfig = voiceConfigs[language];
+  //     if (!voiceConfig) {
+  //       logger.warn(`No voice configuration found for language: ${language}`);
+  //       return null;
+  //     }
+  //
+  //     // Generate audio using ElevenLabs SDK
+  //     const audioStream = await elevenlabs.textToSpeech.convert('V0PuVTP8lJVnkKNavZmc', {
+  //       text,
+  //       modelId: 'eleven_multilingual_v2',
+  //       outputFormat: 'mp3_44100_128',
+  //     });
+  //
+  //     // Convert ReadableStream to Buffer
+  //     const chunks: Buffer[] = [];
+  //     for await (const chunk of audioStream) {
+  //       chunks.push(Buffer.from(chunk));
+  //     }
+  //     const buffer = Buffer.concat(chunks);
+  //
+  //     logger.info(`✅ ElevenLabs audio generated: ${buffer.length} bytes`);
+  //     return buffer;
+  //
+  //   } catch (error: any) {
+  //     logger.error(`ElevenLabs TTS failed for ${language}:`, {
+  //       message: error.message,
+  //       statusCode: error.statusCode,
+  //       code: error.code,
+  //     });
+  //
+  //     if (error.statusCode === 401 || error.message?.includes('401')) {
+  //       logger.error(`ElevenLabs API authentication failed - check API key`);
+  //     } else if (error.statusCode === 429 || error.message?.includes('429')) {
+  //       logger.warn(`ElevenLabs API rate limit exceeded for ${language}`);
+  //     }
+  //
+  //     return null;
+  //   }
+  // }
 
   /**
    * Generate AI audio using DSN - COMMENTED OUT (replaced by ElevenLabs)
@@ -280,36 +366,40 @@ class TTSService {
         return this.authToken;
       }
 
-      logger.info('Authenticating with DSN API...');
-      
+      logger.info("Authenticating with DSN API...");
+
       const authResponse = await axios({
-        method: 'POST',
+        method: "POST",
         url: `${config.dsn.baseUrl}/api/v1/auth/login/json`,
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         data: {
           identifier: config.dsn.username,
-          password: config.dsn.password
+          password: config.dsn.password,
         },
-        timeout: 15000
+        timeout: 15000,
       });
 
       if (authResponse.data && authResponse.data.access_token) {
         this.authToken = authResponse.data.access_token;
         // Set token expiry (assume 1 hour if not provided)
         this.tokenExpiry = new Date(Date.now() + 60 * 60 * 1000);
-        
-        logger.info(`DSN authentication successful, token expires: ${this.tokenExpiry}`);
+
+        logger.info(
+          `DSN authentication successful, token expires: ${this.tokenExpiry}`
+        );
         return this.authToken;
       } else {
-        logger.warn('DSN authentication failed: No access_token in response');
+        logger.warn("DSN authentication failed: No access_token in response");
         return null;
       }
-
     } catch (error: any) {
-      logger.warn('DSN authentication failed:', error.message || 'Unknown error');
-      
+      logger.warn(
+        "DSN authentication failed:",
+        error.message || "Unknown error"
+      );
+
       // Clear stored token on auth failure
       this.authToken = null;
       this.tokenExpiry = null;

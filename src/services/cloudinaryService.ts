@@ -159,7 +159,7 @@ class CloudinaryService {
         overwrite: true,
         use_filename: true,
         unique_filename: !options.publicId,
-        format: "mp3",
+        format: "wav",
         quality: "auto:good",
       };
 
@@ -171,7 +171,7 @@ class CloudinaryService {
       logger.debug(`Uploading buffer to Cloudinary (${buffer.length} bytes)`);
 
       // Convert buffer to base64 data URL for upload with 15s timeout
-      const base64Data = `data:audio/mp3;base64,${buffer.toString("base64")}`;
+      const base64Data = `data:audio/wav;base64,${buffer.toString("base64")}`;
 
       // Add timeout to prevent hanging uploads
       const uploadPromise = cloudinary.uploader.upload(base64Data, {

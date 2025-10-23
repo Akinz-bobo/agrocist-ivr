@@ -2,11 +2,14 @@ import ttsService, { TTSOptions } from "./ttsService";
 import logger from "../utils/logger";
 import cloudinaryService from "./cloudinaryService";
 import config from "../config";
-import { ElevenLabsClient, play } from "@elevenlabs/elevenlabs-js";
+import Spitch from "spitch";
+// import { ElevenLabsClient, play } from "@elevenlabs/elevenlabs-js";
 
-const elevenlabs = new ElevenLabsClient({
-  apiKey: process.env.ELEVENLABS_API_KEY,
-});
+// const elevenlabs = new ElevenLabsClient({
+//   apiKey: process.env.ELEVENLABS_API_KEY,
+// });
+
+const spitch = new Spitch({ apiKey: process.env.SPITCH_API_KEY });
 
 export interface StaticAudioTexts {
   welcome: string;
@@ -116,19 +119,19 @@ class StaticAudioService {
    * Pre-generate all static audio files at startup
    */
   async preGenerateStaticAudio(): Promise<void> {
-    logger.info("🎵 Starting static audio pre-generation with ElevenLabs...");
+    logger.info("🎵 Starting static audio pre-generation with Spitch...");
     const startTime = Date.now();
     let successCount = 0;
     let failedCount = 0;
 
-    // Check ElevenLabs API key
-    if (!process.env.ELEVENLABS_API_KEY) {
+    // Check Spitch API key
+    if (!process.env.SPITCH_API_KEY) {
       logger.error(
-        "❌ ElevenLabs API key not configured - static audio generation failed"
+        "❌ Spitch API key not configured - static audio generation failed"
       );
       logger.info("🎵 Static audio pre-generation completed in 0ms");
       logger.info(
-        `✅ Success: 0, ❌ Failed: 0, Total: 0 (failed due to missing ElevenLabs API key)`
+        `✅ Success: 0, ❌ Failed: 0, Total: 0 (failed due to missing Spitch API key)`
       );
       return;
     }
@@ -495,108 +498,194 @@ class StaticAudioService {
   // }
 
   /**
-   * Generate TTS audio buffer using ElevenLabs API
+   * Generate TTS audio buffer using Spitch API
    */
   private async generateTTSBuffer(
     text: string,
     language: "en" | "yo" | "ha" | "ig"
   ): Promise<Buffer | null> {
     logger.debug(
-      `🔍 ElevenLabs TTS Request - Language: ${language}, Text: "${text}" (length: ${
+      `🔍 Spitch TTS Request - Language: ${language}, Text: "${text}" (length: ${
         text?.length || 0
       })`
     );
 
     if (!text || text.trim() === "") {
       logger.error(
-        `❌ Empty text provided for ElevenLabs TTS: language=${language}, text="${text}"`
+        `❌ Empty text provided for Spitch TTS: language=${language}, text="${text}"`
       );
       return null;
     }
 
     try {
       // Voice configurations for different languages
-      const voiceConfigs: Record<string, { voiceId: string }> = {
-        en: {
-          voiceId: process.env.ELEVENLABS_VOICE_ID_EN || "21m00Tcm4TlvDq8ikWAM",
-        },
-        yo: {
-          voiceId: process.env.ELEVENLABS_VOICE_ID_YO || "21m00Tcm4TlvDq8ikWAM",
-        },
-        ha: {
-          voiceId: process.env.ELEVENLABS_VOICE_ID_HA || "21m00Tcm4TlvDq8ikWAM",
-        },
-        ig: {
-          voiceId: process.env.ELEVENLABS_VOICE_ID_IG || "21m00Tcm4TlvDq8ikWAM",
-        },
+      const voiceConfigs = {
+        en: "lucy" as const,
+        yo: "sade" as const,
+        ha: "zainab" as const,
+        ig: "amara" as const,
       };
 
-      const voiceConfig = voiceConfigs[language];
-      if (!voiceConfig) {
+      const voiceId = voiceConfigs[language];
+      if (!voiceId) {
         logger.warn(`No voice configuration found for language: ${language}`);
         return null;
       }
 
-      // Generate audio using ElevenLabs SDK
-      const audioStream = await elevenlabs.textToSpeech.convert(
-        "V0PuVTP8lJVnkKNavZmc",
-        {
-          text,
-          modelId: "eleven_multilingual_v2",
-          outputFormat: "mp3_44100_128",
-        }
-      );
+      // Generate audio using Spitch SDK
+      const res = await spitch.speech.generate({
+        text: text,
+        language: language,
+        voice: voiceId,
+        format: "wav",
+      });
 
-      // Convert ReadableStream to Buffer for Cloudinary upload
-      const chunks: Buffer[] = [];
-      for await (const chunk of audioStream) {
-        chunks.push(Buffer.from(chunk));
-      }
-      const buffer = Buffer.concat(chunks);
+      const blob = await res.blob();
+      const buffer = Buffer.from(await blob.arrayBuffer());
 
       if (buffer && buffer.length > 4) {
         const magicBytes = buffer.toString("hex", 0, 4);
-        logger.debug(`🔍 ElevenLabs TTS Buffer Magic Bytes: 0x${magicBytes}`);
+        logger.debug(`🔍 Spitch TTS Buffer Magic Bytes: 0x${magicBytes}`);
 
-        if (magicBytes.startsWith("494433")) {
+        if (magicBytes.startsWith("52494646")) {
+          // "RIFF"
+          logger.debug("➡️  Buffer signature matches WAV.");
+        } else if (magicBytes.startsWith("494433")) {
+          // "ID3"
           logger.debug("➡️  Buffer signature matches MP3 (ID3 tag).");
-        } else if (magicBytes.startsWith("fffb")) {
-          logger.debug("➡️  Buffer signature matches MP3 (sync frame).");
         } else {
           logger.debug("❔ Buffer format is unrecognized.");
         }
       }
 
+      logger.info(`✅ Spitch audio generated: ${buffer.length} bytes`);
       return buffer;
     } catch (error: any) {
-      // Log detailed error information for debugging
-      logger.error(`ElevenLabs TTS failed for ${language}:`, {
+      logger.error(`Spitch TTS failed for ${language}:`, {
         message: error.message,
         statusCode: error.statusCode,
         code: error.code,
-        cause: error.cause?.message || error.cause,
-        stack: error.stack?.split("\n")[0],
       });
 
       if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
-        logger.warn(`ElevenLabs API timeout for ${language} audio generation`);
+        logger.warn(`Spitch API timeout for ${language} audio generation`);
       } else if (error.statusCode === 401 || error.message?.includes("401")) {
-        logger.error(`ElevenLabs API authentication failed - check API key`);
+        logger.error(`Spitch API authentication failed - check API key`);
       } else if (error.statusCode === 429 || error.message?.includes("429")) {
-        logger.warn(`ElevenLabs API rate limit exceeded for ${language}`);
+        logger.warn(`Spitch API rate limit exceeded for ${language}`);
       } else if (error.statusCode >= 500) {
         logger.warn(
-          `ElevenLabs API server error (${error.statusCode}) for ${language} audio`
-        );
-      } else if (error.message?.includes("fetch failed")) {
-        logger.error(
-          `ElevenLabs API network error - check internet connection and API endpoint`
+          `Spitch API server error (${error.statusCode}) for ${language} audio`
         );
       }
 
       return null;
     }
   }
+
+  /**
+   * COMMENTED OUT - ElevenLabs TTS Implementation
+   */
+  // private async generateTTSBufferElevenLabs(
+  //   text: string,
+  //   language: "en" | "yo" | "ha" | "ig"
+  // ): Promise<Buffer | null> {
+  //   logger.debug(
+  //     `🔍 ElevenLabs TTS Request - Language: ${language}, Text: "${text}" (length: ${
+  //       text?.length || 0
+  //     })`
+  //   );
+  //
+  //   if (!text || text.trim() === "") {
+  //     logger.error(
+  //       `❌ Empty text provided for ElevenLabs TTS: language=${language}, text="${text}"`
+  //     );
+  //     return null;
+  //   }
+  //
+  //   try {
+  //     // Voice configurations for different languages
+  //     const voiceConfigs: Record<string, { voiceId: string }> = {
+  //       en: {
+  //         voiceId: process.env.ELEVENLABS_VOICE_ID_EN || "21m00Tcm4TlvDq8ikWAM",
+  //       },
+  //       yo: {
+  //         voiceId: process.env.ELEVENLABS_VOICE_ID_YO || "21m00Tcm4TlvDq8ikWAM",
+  //       },
+  //       ha: {
+  //         voiceId: process.env.ELEVENLABS_VOICE_ID_HA || "21m00Tcm4TlvDq8ikWAM",
+  //       },
+  //       ig: {
+  //         voiceId: process.env.ELEVENLABS_VOICE_ID_IG || "21m00Tcm4TlvDq8ikWAM",
+  //       },
+  //     };
+  //
+  //     const voiceConfig = voiceConfigs[language];
+  //     if (!voiceConfig) {
+  //       logger.warn(`No voice configuration found for language: ${language}`);
+  //       return null;
+  //     }
+  //
+  //     // Generate audio using ElevenLabs SDK
+  //     const audioStream = await elevenlabs.textToSpeech.convert(
+  //       "V0PuVTP8lJVnkKNavZmc",
+  //       {
+  //         text,
+  //         modelId: "eleven_multilingual_v2",
+  //         outputFormat: "mp3_44100_128",
+  //       }
+  //     );
+  //
+  //     // Convert ReadableStream to Buffer for Cloudinary upload
+  //     const chunks: Buffer[] = [];
+  //     for await (const chunk of audioStream) {
+  //       chunks.push(Buffer.from(chunk));
+  //     }
+  //     const buffer = Buffer.concat(chunks);
+  //
+  //     if (buffer && buffer.length > 4) {
+  //       const magicBytes = buffer.toString("hex", 0, 4);
+  //       logger.debug(`🔍 ElevenLabs TTS Buffer Magic Bytes: 0x${magicBytes}`);
+  //
+  //       if (magicBytes.startsWith("494433")) {
+  //         logger.debug("➡️  Buffer signature matches MP3 (ID3 tag).");
+  //       } else if (magicBytes.startsWith("fffb")) {
+  //         logger.debug("➡️  Buffer signature matches MP3 (sync frame).");
+  //       } else {
+  //         logger.debug("❔ Buffer format is unrecognized.");
+  //       }
+  //     }
+  //
+  //     return buffer;
+  //   } catch (error: any) {
+  //     // Log detailed error information for debugging
+  //     logger.error(`ElevenLabs TTS failed for ${language}:`, {
+  //       message: error.message,
+  //       statusCode: error.statusCode,
+  //       code: error.code,
+  //       cause: error.cause?.message || error.cause,
+  //       stack: error.stack?.split("\n")[0],
+  //     });
+  //
+  //     if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
+  //       logger.warn(`ElevenLabs API timeout for ${language} audio generation`);
+  //     } else if (error.statusCode === 401 || error.message?.includes("401")) {
+  //       logger.error(`ElevenLabs API authentication failed - check API key`);
+  //     } else if (error.statusCode === 429 || error.message?.includes("429")) {
+  //       logger.warn(`ElevenLabs API rate limit exceeded for ${language}`);
+  //     } else if (error.statusCode >= 500) {
+  //       logger.warn(
+  //         `ElevenLabs API server error (${error.statusCode}) for ${language} audio`
+  //       );
+  //     } else if (error.message?.includes("fetch failed")) {
+  //       logger.error(
+  //         `ElevenLabs API network error - check internet connection and API endpoint`
+  //       );
+  //     }
+  //
+  //     return null;
+  //   }
+  // }
 
   /**
    * Get cache statistics
