@@ -386,202 +386,222 @@ class StaticAudioService {
    * Generate TTS audio buffer without saving to disk
    * COMMENTED OUT - DSN API Implementation
    */
-  // private async generateTTSBuffer(
-  //   text: string,
-  //   language: "en" | "yo" | "ha" | "ig"
-  // ): Promise<Buffer | null> {
-  //   // Debug: Log the exact text being passed to DSN API
-  //   logger.debug(
-  //     `🔍 DSN TTS Request - Language: ${language}, Text: "${text}" (length: ${
-  //       text?.length || 0
-  //     })`
-  //   );
-
-  //   if (!text || text.trim() === "") {
-  //     logger.error(
-  //       `❌ Empty text provided for DSN TTS: language=${language}, text="${text}"`
-  //     );
-  //     return null;
-  //   }
-
-  //   try {
-  //     const axios = require("axios");
-  //     const FormData = require("form-data");
-
-  //     // Reuse TTS authentication and generation logic
-  //     const ttsService = (await import("./ttsService")).default;
-  //     const token = await ttsService.authenticateDSN();
-
-  //     if (!token) {
-  //       logger.warn("DSN API authentication failed");
-  //       return null;
-  //     }
-
-  //     // Voice configurations
-  //     const voiceConfigs: Record<string, any> = {
-  //       en: { voiceId: "lucy", language: "en" },
-  //       yo: { voiceId: "sade", language: "yo" },
-  //       ha: { voiceId: "zainab", language: "ha" },
-  //       ig: { voiceId: "amara", language: "ig" },
-  //     };
-
-  //     const voiceConfig = voiceConfigs[language];
-  //     if (!voiceConfig) {
-  //       logger.warn(`No voice configuration found for language: ${language}`);
-  //       return null;
-  //     }
-
-  //     // Create form data for the request
-  //     const formData = new FormData();
-  //     formData.append("text", text);
-  //     formData.append("language", voiceConfig.language);
-  //     formData.append("voice", voiceConfig.voiceId);
-  //     formData.append("format", "mp3");
-  //     formData.append("quality", "medium");
-  //     formData.append("encoding", "mp3_64");
-
-  //     // Make request to DSN TTS API with form-data
-  //     const response = await axios({
-  //       method: "POST",
-  //       url: `${config.dsn.baseUrl}/api/v1/ai/spitch/text-to-speech`,
-  //       data: formData,
-  //       headers: {
-  //         ...formData.getHeaders(),
-  //         Authorization: `Bearer ${token}`,
-  //       },
-  //       responseType: "arraybuffer",
-  //       timeout: 30000,
-  //     });
-
-  //     const buffer = Buffer.from(response.data); // DEBUG: Log the first 4 bytes to check for magic numbers
-
-  //     if (buffer && buffer.length > 4) {
-  //       const magicBytes = buffer.toString("hex", 0, 4);
-  //       logger.debug(`🔍 DSN TTS Buffer Magic Bytes: 0x${magicBytes}`); // Check for common signatures
-
-  //       if (magicBytes.startsWith("494433")) {
-  //         // "ID3"
-  //         logger.debug("➡️  Buffer signature matches MP3 (ID3 tag).");
-  //       } else if (magicBytes.startsWith("fffb")) {
-  //         // "ÿû"
-  //         logger.debug("➡️  Buffer signature matches MP3 (sync frame).");
-  //       } else if (magicBytes.startsWith("52494646")) {
-  //         // "RIFF"
-  //         logger.warn("⚠️  WARNING: Buffer signature matches WAV!");
-  //       } else {
-  //         logger.debug("❔ Buffer format is unrecognized.");
-  //       }
-  //     }
-
-  //     return buffer;
-  //   } catch (error: any) {
-  //     // Handle common timeout and connection errors concisely
-  //     if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
-  //       logger.warn(`DSN API timeout for ${language} audio generation`);
-  //     } else if (error.response?.status === 504) {
-  //       logger.warn(`DSN API gateway timeout (504) for ${language} audio`);
-  //     } else if (error.response?.status >= 500) {
-  //       logger.warn(
-  //         `DSN API server error (${error.response.status}) for ${language} audio`
-  //       );
-  //     } else {
-  //       const errorDetails = {
-  //         status: error.response?.status,
-  //         statusText: error.response?.statusText,
-  //         data: error.response?.data,
-  //         message: error.message,
-  //       };
-  //       logger.warn(`DSN TTS failed for ${language}:`, errorDetails);
-  //     }
-  //     return null;
-  //   }
-  // }
-
-  /**
-   * Generate TTS audio buffer using Spitch API
-   */
   private async generateTTSBuffer(
     text: string,
     language: "en" | "yo" | "ha" | "ig"
   ): Promise<Buffer | null> {
-    logger.debug(
-      `🔍 Spitch TTS Request - Language: ${language}, Text: "${text}" (length: ${
+    // Debug: Log the exact text being passed to DSN API
+    logger.warn(
+      `🔍 DSN TTS Request - Language: ${language}, Text: "${text}" (length: ${
         text?.length || 0
       })`
     );
 
     if (!text || text.trim() === "") {
       logger.error(
-        `❌ Empty text provided for Spitch TTS: language=${language}, text="${text}"`
+        `❌ Empty text provided for DSN TTS: language=${language}, text="${text}"`
       );
       return null;
     }
 
     try {
-      // Voice configurations for different languages
-      const voiceConfigs = {
-        en: "lucy" as const,
-        yo: "sade" as const,
-        ha: "zainab" as const,
-        ig: "amara" as const,
+      const axios = require("axios");
+      const FormData = require("form-data");
+
+      // Reuse TTS authentication and generation logic
+      const ttsService = (await import("./ttsService")).default;
+      const token = await ttsService.authenticateDSN();
+
+      if (!token) {
+        logger.warn("DSN API authentication failed");
+        return null;
+      }
+
+      // Voice configurations
+      const voiceConfigs: Record<string, any> = {
+        en: { voiceId: "lucy", language: "en" },
+        yo: { voiceId: "sade", language: "yo" },
+        ha: { voiceId: "zainab", language: "ha" },
+        ig: { voiceId: "amara", language: "ig" },
       };
 
-      const voiceId = voiceConfigs[language];
-      if (!voiceId) {
+      const voiceConfig = voiceConfigs[language];
+      if (!voiceConfig) {
         logger.warn(`No voice configuration found for language: ${language}`);
         return null;
       }
 
-      // Generate audio using Spitch SDK
-      const res = await spitch.speech.generate({
-        text: text,
-        language: language,
-        voice: voiceId,
-        format: "wav",
+      // Create form data for the request
+      const formData = new FormData();
+      formData.append("text", text);
+      formData.append("language", voiceConfig.language);
+      formData.append("voice", voiceConfig.voiceId);
+      formData.append("format", "mp3");
+      formData.append("quality", "medium");
+      formData.append("encoding", "mp3_64");
+
+      // Make request to DSN TTS API with form-data
+      const response = await axios({
+        method: "POST",
+        url: `${config.dsn.baseUrl}/api/v1/ai/spitch/text-to-speech`,
+        data: formData,
+        headers: {
+          ...formData.getHeaders(),
+          Authorization: `Bearer ${token}`,
+        },
+        responseType: "arraybuffer",
+        timeout: 30000,
       });
 
-      const blob = await res.blob();
-      const buffer = Buffer.from(await blob.arrayBuffer());
+      if (response) {
+        // Avoid stringifying the full response (contains circular refs). Log a safe summary instead.
+        try {
+          const safeSummary = {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+            dataLength: response.data
+              ? response.data.length || Buffer.byteLength(response.data || "")
+              : 0,
+          };
+          logger.warn(`🔍 DSN TTS Response: ${JSON.stringify(safeSummary)}`);
+        } catch (logError) {
+          // Fallback - still avoid logging circular structures
+          logger.warn(
+            "🔍 DSN TTS Response received (unable to serialize details)"
+          );
+        }
+      }
+
+      const buffer = Buffer.from(response.data); // DEBUG: Log the first 4 bytes to check for magic numbers
 
       if (buffer && buffer.length > 4) {
         const magicBytes = buffer.toString("hex", 0, 4);
-        logger.debug(`🔍 Spitch TTS Buffer Magic Bytes: 0x${magicBytes}`);
+        logger.debug(`🔍 DSN TTS Buffer Magic Bytes: 0x${magicBytes}`); // Check for common signatures
 
-        if (magicBytes.startsWith("52494646")) {
-          // "RIFF"
-          logger.debug("➡️  Buffer signature matches WAV.");
-        } else if (magicBytes.startsWith("494433")) {
+        if (magicBytes.startsWith("494433")) {
           // "ID3"
           logger.debug("➡️  Buffer signature matches MP3 (ID3 tag).");
+        } else if (magicBytes.startsWith("fffb")) {
+          // "ÿû"
+          logger.debug("➡️  Buffer signature matches MP3 (sync frame).");
+        } else if (magicBytes.startsWith("52494646")) {
+          // "RIFF"
+          logger.warn("⚠️  WARNING: Buffer signature matches WAV!");
         } else {
           logger.debug("❔ Buffer format is unrecognized.");
         }
       }
 
-      logger.info(`✅ Spitch audio generated: ${buffer.length} bytes`);
       return buffer;
     } catch (error: any) {
-      logger.error(`Spitch TTS failed for ${language}:`, {
-        message: error.message,
-        statusCode: error.statusCode,
-        code: error.code,
-      });
-
+      // Handle common timeout and connection errors concisely
       if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
-        logger.warn(`Spitch API timeout for ${language} audio generation`);
-      } else if (error.statusCode === 401 || error.message?.includes("401")) {
-        logger.error(`Spitch API authentication failed - check API key`);
-      } else if (error.statusCode === 429 || error.message?.includes("429")) {
-        logger.warn(`Spitch API rate limit exceeded for ${language}`);
-      } else if (error.statusCode >= 500) {
+        logger.warn(`DSN API timeout for ${language} audio generation`);
+      } else if (error.response?.status === 504) {
+        logger.warn(`DSN API gateway timeout (504) for ${language} audio`);
+      } else if (error.response?.status >= 500) {
         logger.warn(
-          `Spitch API server error (${error.statusCode}) for ${language} audio`
+          `DSN API server error (${error.response.status}) for ${language} audio`
         );
+      } else {
+        const errorDetails = {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+          message: error.message,
+        };
+        logger.warn(`DSN TTS failed for ${language}:`, errorDetails);
       }
-
       return null;
     }
   }
+
+  /**
+   * Generate TTS audio buffer using Spitch API
+   */
+  // private async generateTTSBuffer(
+  //   text: string,
+  //   language: "en" | "yo" | "ha" | "ig"
+  // ): Promise<Buffer | null> {
+  //   logger.debug(
+  //     `🔍 Spitch TTS Request - Language: ${language}, Text: "${text}" (length: ${
+  //       text?.length || 0
+  //     })`
+  //   );
+
+  //   if (!text || text.trim() === "") {
+  //     logger.error(
+  //       `❌ Empty text provided for Spitch TTS: language=${language}, text="${text}"`
+  //     );
+  //     return null;
+  //   }
+
+  //   try {
+  //     // Voice configurations for different languages
+  //     const voiceConfigs = {
+  //       en: "lucy" as const,
+  //       yo: "sade" as const,
+  //       ha: "zainab" as const,
+  //       ig: "amara" as const,
+  //     };
+
+  //     const voiceId = voiceConfigs[language];
+  //     if (!voiceId) {
+  //       logger.warn(`No voice configuration found for language: ${language}`);
+  //       return null;
+  //     }
+
+  //     // Generate audio using Spitch SDK
+  //     const res = await spitch.speech.generate({
+  //       text: text,
+  //       language: language,
+  //       voice: voiceId,
+  //       format: "wav",
+  //     });
+
+  //     const blob = await res.blob();
+  //     const buffer = Buffer.from(await blob.arrayBuffer());
+
+  //     if (buffer && buffer.length > 4) {
+  //       const magicBytes = buffer.toString("hex", 0, 4);
+  //       logger.debug(`🔍 Spitch TTS Buffer Magic Bytes: 0x${magicBytes}`);
+
+  //       if (magicBytes.startsWith("52494646")) {
+  //         // "RIFF"
+  //         logger.debug("➡️  Buffer signature matches WAV.");
+  //       } else if (magicBytes.startsWith("494433")) {
+  //         // "ID3"
+  //         logger.debug("➡️  Buffer signature matches MP3 (ID3 tag).");
+  //       } else {
+  //         logger.debug("❔ Buffer format is unrecognized.");
+  //       }
+  //     }
+
+  //     logger.info(`✅ Spitch audio generated: ${buffer.length} bytes`);
+  //     return buffer;
+  //   } catch (error: any) {
+  //     logger.error(`Spitch TTS failed for ${language}:`, {
+  //       message: error.message,
+  //       statusCode: error.statusCode,
+  //       code: error.code,
+  //     });
+
+  //     if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
+  //       logger.warn(`Spitch API timeout for ${language} audio generation`);
+  //     } else if (error.statusCode === 401 || error.message?.includes("401")) {
+  //       logger.error(`Spitch API authentication failed - check API key`);
+  //     } else if (error.statusCode === 429 || error.message?.includes("429")) {
+  //       logger.warn(`Spitch API rate limit exceeded for ${language}`);
+  //     } else if (error.statusCode >= 500) {
+  //       logger.warn(
+  //         `Spitch API server error (${error.statusCode}) for ${language} audio`
+  //       );
+  //     }
+
+  //     return null;
+  //   }
+  // }
 
   /**
    * COMMENTED OUT - ElevenLabs TTS Implementation

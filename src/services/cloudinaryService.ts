@@ -1,4 +1,4 @@
-import { v2 as cloudinary } from "cloudinary";
+import { UploadApiOptions, v2 as cloudinary } from "cloudinary";
 import fs from "fs";
 import path from "path";
 import config from "../config";
@@ -92,14 +92,17 @@ class CloudinaryService {
     }
 
     try {
-      const uploadOptions: any = {
+      const uploadOptions: UploadApiOptions = {
         resource_type: options.resourceType || ("auto" as const),
         folder: options.folder || config.cloudinary.folder,
         overwrite: options.overwrite !== false,
         use_filename: true,
         unique_filename: !options.publicId, // Only use unique filename if no publicId provided
-        format: "mp3", // Ensure consistent format
+        format: "wav", // Ensure consistent format
         quality: "auto:good", // Optimize for good quality with smaller size
+        transformation: {
+          audio_frequency: 8000,
+        },
       };
 
       // Only add public_id if it's defined
@@ -152,15 +155,21 @@ class CloudinaryService {
       return null;
     }
 
+    console.log(
+      "Uploading audio buffer to Cloudinary..., I AM BEING CALLED RIGHT NOW."
+    );
     try {
-      const uploadOptions: any = {
+      const uploadOptions: UploadApiOptions = {
         resource_type: "video" as const,
         folder: options.folder || config.cloudinary.folder,
         overwrite: true,
         use_filename: true,
         unique_filename: !options.publicId,
-        format: "wav",
+        format: "mp3",
         quality: "auto:good",
+        transformation: {
+          audio_frequency: 8000,
+        },
       };
 
       // Only add public_id if it's defined
@@ -171,11 +180,12 @@ class CloudinaryService {
       logger.debug(`Uploading buffer to Cloudinary (${buffer.length} bytes)`);
 
       // Convert buffer to base64 data URL for upload with 15s timeout
-      const base64Data = `data:audio/wav;base64,${buffer.toString("base64")}`;
+      const base64Data = `data:audio/mp3;base64,${buffer.toString("base64")}`;
 
       // Add timeout to prevent hanging uploads
       const uploadPromise = cloudinary.uploader.upload(base64Data, {
         ...uploadOptions,
+        audiofrequency: 8000,
         timeout: 15000,
       });
       const timeoutPromise = new Promise((_, reject) =>

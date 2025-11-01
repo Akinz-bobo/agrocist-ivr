@@ -31,63 +31,63 @@ class TTSService {
   /**
    * Generate AI audio using Spitch - with user identification
    */
-  async generateAIAudio(
-    text: string,
-    language: "en" | "yo" | "ha" | "ig",
-    phoneNumber: string,
-    speed: number = 0.9
-  ): Promise<string> {
-    try {
-      logger.info(
-        `🎙️ Generating Spitch audio for ${phoneNumber} in ${language}`
-      );
+  // async generateAIAudio(
+  //   text: string,
+  //   language: "en" | "yo" | "ha" | "ig",
+  //   phoneNumber: string,
+  //   speed: number = 0.9
+  // ): Promise<string> {
+  //   try {
+  //     logger.info(
+  //       `🎙️ Generating Spitch audio for ${phoneNumber} in ${language}`
+  //     );
 
-      // Generate TTS audio buffer using Spitch
-      const audioBuffer = await this.generateSpitchBuffer(text, language);
-      if (!audioBuffer) {
-        throw new Error("Failed to generate audio buffer from Spitch");
-      }
+  //     // Generate TTS audio buffer using Spitch
+  //     const audioBuffer = await this.generateSpitchBuffer(text, language);
+  //     if (!audioBuffer) {
+  //       throw new Error("Failed to generate audio buffer from Spitch");
+  //     }
 
-      // Upload to Cloudinary if enabled with user-specific filename
-      if (cloudinaryService.isEnabled()) {
-        const timestamp = Date.now();
-        const filename = `dynamic_spitch_${phoneNumber}_${language}_${timestamp}`;
+  //     // Upload to Cloudinary if enabled with user-specific filename
+  //     if (cloudinaryService.isEnabled()) {
+  //       const timestamp = Date.now();
+  //       const filename = `dynamic_spitch_${phoneNumber}_${language}_${timestamp}`;
 
-        const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(
-          audioBuffer,
-          {
-            folder: `${config.cloudinary.folder}/dynamic`,
-            filename: filename,
-          }
-        );
+  //       const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(
+  //         audioBuffer,
+  //         {
+  //           folder: `${config.cloudinary.folder}/dynamic`,
+  //           filename: filename,
+  //         }
+  //       );
 
-        if (cloudinaryResult) {
-          logger.info(
-            `✅ Uploaded Spitch audio to Cloudinary: ${cloudinaryResult.secureUrl}`
-          );
-          return cloudinaryResult.secureUrl;
-        } else {
-          logger.warn("Cloudinary upload failed, falling back to data URL");
-        }
-      }
+  //       if (cloudinaryResult) {
+  //         logger.info(
+  //           `✅ Uploaded Spitch audio to Cloudinary: ${cloudinaryResult.secureUrl}`
+  //         );
+  //         return cloudinaryResult.secureUrl;
+  //       } else {
+  //         logger.warn("Cloudinary upload failed, falling back to data URL");
+  //       }
+  //     }
 
-      // Fallback to data URL if Cloudinary is disabled or upload failed
-      const base64 = audioBuffer.toString("base64");
-      const dataUrl = `data:audio/wav;base64,${base64}`;
-      logger.info(
-        `Generated data URL for Spitch audio (${audioBuffer.length} bytes)`
-      );
-      return dataUrl;
-    } catch (error: any) {
-      logger.error(
-        `Failed to generate Spitch audio for ${language}:`,
-        error.message || "Unknown error"
-      );
-      throw new Error(
-        `Spitch audio generation failed: ${error.message || "Unknown error"}`
-      );
-    }
-  }
+  //     // Fallback to data URL if Cloudinary is disabled or upload failed
+  //     const base64 = audioBuffer.toString("base64");
+  //     const dataUrl = `data:audio/wav;base64,${base64}`;
+  //     logger.info(
+  //       `Generated data URL for Spitch audio (${audioBuffer.length} bytes)`
+  //     );
+  //     return dataUrl;
+  //   } catch (error: any) {
+  //     logger.error(
+  //       `Failed to generate Spitch audio for ${language}:`,
+  //       error.message || "Unknown error"
+  //     );
+  //     throw new Error(
+  //       `Spitch audio generation failed: ${error.message || "Unknown error"}`
+  //     );
+  //   }
+  // }
 
   /**
    * Generate TTS audio buffer using Spitch API
@@ -224,39 +224,46 @@ class TTSService {
   /**
    * Generate AI audio using DSN - COMMENTED OUT (replaced by ElevenLabs)
    */
-  /*
-  async generateAIAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig', speed: number = 0.9): Promise<string> {
+
+  async generateAIAudio(
+    text: string,
+    language: "en" | "yo" | "ha" | "ig",
+    phoneNumber: string,
+    speed: number = 0.9
+  ): Promise<string> {
     try {
       // Get authentication token
       const token = await this.authenticateDSN();
       if (!token) {
-        throw new Error('Failed to authenticate with DSN API');
+        throw new Error("Failed to authenticate with DSN API");
       }
 
       const voiceConfig = this.voiceConfigs[language];
       if (!voiceConfig) {
-        throw new Error(`No voice configuration found for language: ${language}`);
+        throw new Error(
+          `No voice configuration found for language: ${language}`
+        );
       }
 
       // Create form data for DSN API request with speed control
       const formData = new FormData();
-      formData.append('text', text);
-      formData.append('language', voiceConfig.language);
-      formData.append('voice', voiceConfig.voiceId);
-      formData.append('format', 'mp3');
-      formData.append('speed', speed.toString()); // Control playback speed (0.5-2.0, default 0.9 for slower, clearer speech)
+      formData.append("text", text);
+      formData.append("language", voiceConfig.language);
+      formData.append("voice", voiceConfig.voiceId);
+      formData.append("format", "mp3");
+      formData.append("speed", speed.toString()); // Control playback speed (0.5-2.0, default 0.9 for slower, clearer speech)
 
       // Make request to DSN TTS API
       const response = await axios({
-        method: 'POST',
+        method: "POST",
         url: `${config.dsn.baseUrl}/api/v1/ai/spitch/text-to-speech`,
         data: formData,
         headers: {
           ...formData.getHeaders(),
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
-        responseType: 'arraybuffer',
-        timeout: 30000
+        responseType: "arraybuffer",
+        timeout: 30000,
       });
 
       // Get audio buffer and upload to Cloudinary
@@ -267,29 +274,36 @@ class TTSService {
       if (cloudinaryService.isEnabled()) {
         // IMPORTANT: Do NOT provide publicId for dynamic AI responses - let Cloudinary generate unique filenames
         // This prevents caching and ensures each AI response gets fresh audio (no reuse)
-        const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(buffer, {
-          folder: config.cloudinary.folder,
-          filename: `ai-response-${Date.now()}`
-        });
+        const timestamp = Date.now();
+        const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(
+          buffer,
+          {
+            folder: config.cloudinary.folder,
+            filename: `dynamic_spitch_${phoneNumber}_${language}_${timestamp}`,
+          }
+        );
 
         if (cloudinaryResult) {
-          logger.info(`✅ Uploaded fresh AI audio to Cloudinary (no cache): ${cloudinaryResult.secureUrl}`);
+          logger.info(
+            `✅ Uploaded fresh AI audio to Cloudinary (no cache): ${cloudinaryResult.secureUrl}`
+          );
           return cloudinaryResult.secureUrl;
         } else {
-          logger.warn('Cloudinary upload failed, falling back to data URL');
+          logger.warn("Cloudinary upload failed, falling back to data URL");
         }
       }
 
       // Fallback to data URL if Cloudinary is disabled or upload failed
-      const base64 = buffer.toString('base64');
+      const base64 = buffer.toString("base64");
       const dataUrl = `data:audio/mp3;base64,${base64}`;
       logger.info(`Generated data URL for AI audio (${buffer.length} bytes)`);
       return dataUrl;
-
     } catch (error: any) {
       // If we get a 403, token might be expired - try re-authenticating once
       if (error.response?.status === 403) {
-        logger.warn(`403 Forbidden from DSN API - token may be expired, attempting re-authentication...`);
+        logger.warn(
+          `403 Forbidden from DSN API - token may be expired, attempting re-authentication...`
+        );
 
         // Clear cached token to force re-authentication
         this.authToken = null;
@@ -299,62 +313,79 @@ class TTSService {
         try {
           const newToken = await this.authenticateDSN();
           if (!newToken) {
-            throw new Error('Re-authentication failed');
+            throw new Error("Re-authentication failed");
           }
 
           // Retry the TTS request with new token
           const voiceConfig = this.voiceConfigs[language];
           const formData = new FormData();
-          formData.append('text', text);
-          formData.append('language', voiceConfig.language);
-          formData.append('voice', voiceConfig.voiceId);
-          formData.append('format', 'mp3');
-          formData.append('speed', speed.toString());
+          formData.append("text", text);
+          formData.append("language", voiceConfig.language);
+          formData.append("voice", voiceConfig.voiceId);
+          formData.append("format", "mp3");
+          formData.append("speed", speed.toString());
 
           const response = await axios({
-            method: 'POST',
+            method: "POST",
             url: `${config.dsn.baseUrl}/api/v1/ai/spitch/text-to-speech`,
             data: formData,
             headers: {
               ...formData.getHeaders(),
-              'Authorization': `Bearer ${newToken}`
+              Authorization: `Bearer ${newToken}`,
             },
-            responseType: 'arraybuffer',
-            timeout: 30000
+            responseType: "arraybuffer",
+            timeout: 30000,
           });
 
           const buffer = Buffer.from(response.data);
-          logger.info(`✅ TTS successful after re-authentication: ${buffer.length} bytes`);
+          logger.info(
+            `✅ TTS successful after re-authentication: ${buffer.length} bytes`
+          );
 
           // Upload to Cloudinary
           if (cloudinaryService.isEnabled()) {
             // Do NOT provide publicId - ensure fresh upload every time
-            const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(buffer, {
-              folder: config.cloudinary.folder,
-              filename: `ai-response-${Date.now()}`
-            });
+            const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(
+              buffer,
+              {
+                folder: config.cloudinary.folder,
+                filename: `ai-response-${Date.now()}`,
+              }
+            );
 
             if (cloudinaryResult) {
-              logger.info(`✅ Uploaded fresh AI audio to Cloudinary after retry (no cache): ${cloudinaryResult.secureUrl}`);
+              logger.info(
+                `✅ Uploaded fresh AI audio to Cloudinary after retry (no cache): ${cloudinaryResult.secureUrl}`
+              );
               return cloudinaryResult.secureUrl;
             }
           }
 
           // Fallback to data URL
-          const base64 = buffer.toString('base64');
+          const base64 = buffer.toString("base64");
           return `data:audio/mp3;base64,${base64}`;
-
         } catch (retryError: any) {
-          logger.error(`Failed to generate AI audio after re-authentication:`, retryError.message || 'Unknown error');
-          throw new Error(`AI audio generation failed after retry: ${retryError.message || 'Unknown error'}`);
+          logger.error(
+            `Failed to generate AI audio after re-authentication:`,
+            retryError.message || "Unknown error"
+          );
+          throw new Error(
+            `AI audio generation failed after retry: ${
+              retryError.message || "Unknown error"
+            }`
+          );
         }
       }
 
-      logger.error(`Failed to generate AI audio for ${language}:`, error.message || 'Unknown error');
-      throw new Error(`AI audio generation failed: ${error.message || 'Unknown error'}`);
+      logger.error(
+        `Failed to generate AI audio for ${language}:`,
+        error.message || "Unknown error"
+      );
+      throw new Error(
+        `AI audio generation failed: ${error.message || "Unknown error"}`
+      );
     }
   }
-  */
 
   /**
    * Authenticate with DSN API and get Bearer token - KEPT FOR REFERENCE
