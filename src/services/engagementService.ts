@@ -5,7 +5,6 @@ import EngagementMetrics, {
   StateTransition,
   AIInteraction
 } from '../models/EngagementMetrics';
-import Conversation from '../models/Conversation';
 import logger from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -534,22 +533,8 @@ class EngagementService {
         timestamp: interaction.timestamp || new Date()
       }));
 
-      // Create simplified conversation document
-      const conversation = new Conversation({
-        sessionId,
-        phoneNumber,
-        language: engagementBuffer.selectedLanguage || 'en',
-        callStartTime: startTime,
-        callEndTime: endTime,
-        duration: totalDuration,
-        interactions
-      });
-
-      // Save to database
-      await conversation.save();
-
-      logger.info(`💾 Saved conversation to database: ${sessionId}`);
-      logger.info(`📞 Session: ${phoneNumber} | Language: ${conversation.language} | Duration: ${totalDuration}s`);
+      logger.info(`💾 Engagement data already tracked in EngagementMetrics: ${sessionId}`);
+      logger.info(`📞 Session: ${phoneNumber} | Language: ${engagementBuffer.selectedLanguage || 'en'} | Duration: ${totalDuration}s`);
       logger.info(`💬 Interactions: ${interactions.length}`);
 
       // Log each interaction

@@ -1,6 +1,8 @@
 import logger from "../utils/logger";
 import cloudinaryService from "./cloudinaryService";
+import localAudioService from "./localAudioService";
 import config from "../config";
+import { stripQueryParams } from "../utils/urlUtils";
 // import Spitch from "spitch";
 // import { ElevenLabsClient, play } from "@elevenlabs/elevenlabs-js";
 
@@ -13,6 +15,7 @@ import config from "../config";
 export interface StaticAudioTexts {
   welcome: string;
   processing: string;
+  analysisWait: string;
   error: string;
   goodbye: string;
   noRecording: string;
@@ -32,6 +35,8 @@ class StaticAudioService {
         "Welcome to Agrocist, your trusted livestock farming partner. Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.",
       processing:
         "Thank you for your question. Agrocist is analyzing your concern.",
+      analysisWait:
+        "Please wait while we analyze your concern. This may take a few moments.",
       error:
         "I'm sorry, I didn't understand that. Let me take you back to the main menu.",
       goodbye: "Thank you for using Agrocist. Have a great day!",
@@ -53,6 +58,7 @@ class StaticAudioService {
       welcome:
         "Ẹ káàbọ̀ sí Agrocist, alábáṣepọ̀ òwe ẹranko tí ẹ lè gbẹ́kẹ̀lé. Ẹ tẹ́ ọ̀kan fún Gẹ̀ẹ́sì, méjì fún Yorùbá, mẹ́ta fún Hausa, tàbí mẹ́rin fún Igbo.",
       processing: "A dúpẹ́ fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìṣòro yín.",
+      analysisWait: "Ẹ dúró díẹ̀ kí a ṣe ìtúpalẹ̀ ìṣòro yín. Èyí lè gba àkókò díẹ̀.",
       error:
         "Má bínú, kò yé mi ohun tí ẹ sọ. Ẹ jẹ́ kí n gbé yín padà sí àtòjọ àkọ́kọ́.",
       goodbye: "A dúpẹ́ fún lilo Agrocist. Ẹ ní ọjọ́ tí ó dára!",
@@ -74,6 +80,7 @@ class StaticAudioService {
       welcome:
         "Maraba da zuwa Agrocist, abokin gona na kiwo da za ku iya dogara da shi. Danna 1 don Turanci, 2 don Yoruba, 3 don Hausa, ko 4 don Igbo.",
       processing: "Na gode da tambayar ku. Agrocist yana nazarin damuwar ku.",
+      analysisWait: "Don Allah ku jira yayin da muke nazarin damuwar ku. Wannan na iya ɗaukar ɗan lokaci.",
       error:
         "Yi hakuri, ban fahimci hakan ba. Bari in mayar da ku zuwa babban menu.",
       goodbye: "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!",
@@ -94,6 +101,7 @@ class StaticAudioService {
       welcome:
         "Nnọọ na Agrocist, onye enyi gị n'ọrụ anụmanụ ị nwere ike ịdabere na ya. Pịa 1 maka Bekee, 2 maka Yoruba, 3 maka Hausa, ma ọ bụ 4 maka Igbo.",
       processing: "Daalụ maka ajụjụ gị. Agrocist na-enyocha nsogbu gị.",
+      analysisWait: "Biko chere ka anyị nyochaa nsogbu gị. Nke a nwere ike were obere oge.",
       error:
         "Ewela iwe, aghọtaghị m ihe ị kwuru. Ka m laghachi gị na menu izizi.",
       goodbye: "Daalụ maka iji Agrocist. Nwee ụbọchị ọma!",
@@ -246,8 +254,22 @@ class StaticAudioService {
       return;
     }
 
-    // FAST PATH: Check if file exists on Cloudinary (only if not in memory cache)
-    if (cloudinaryService.isEnabled()) {
+    // FAST PATH: Check if file exists locally or on Cloudinary (only if not in memory cache)
+    if (localAudioService.isEnabled()) {
+      // Check local storage first
+      const localUrl = `/audio/static/${language}_${key}.mp3`;
+      if (localAudioService.fileExists(localUrl)) {
+        finalUrl = `${config.webhook.baseUrl}${localUrl}`;
+        logger.info(`♻️ SKIPPED: Using existing local static file: ${cacheKey}`);
+      } else {
+        // Generate and save using unified method
+        logger.info(`📤 Generating new static audio: ${cacheKey}`);
+        finalUrl = await this.uploadStaticToCloudinary(text, language, key);
+        if (finalUrl) {
+          logger.info(`✅ Saved new static audio: ${cacheKey}`);
+        }
+      }
+    } else if (cloudinaryService.isEnabled()) {
       const basePublicId = cloudinaryService.generatePublicId(
         text,
         language,
@@ -269,7 +291,7 @@ class StaticAudioService {
           const existingCloudinaryUrl =
             cloudinaryService.getOptimizedUrl(staticPublicId);
           if (existingCloudinaryUrl) {
-            finalUrl = existingCloudinaryUrl;
+            finalUrl = stripQueryParams(existingCloudinaryUrl);
             logger.info(
               `♻️ SKIPPED: Using existing static Cloudinary file: ${cacheKey} (${staticPublicId})`
             );
@@ -294,7 +316,7 @@ class StaticAudioService {
         );
         const directUrl = cloudinaryService.getOptimizedUrl(staticPublicId);
         if (directUrl) {
-          finalUrl = directUrl;
+          finalUrl = stripQueryParams(directUrl);
           logger.info(
             `♻️ Using direct Cloudinary URL despite API error: ${cacheKey}`
           );
@@ -309,12 +331,12 @@ class StaticAudioService {
         }
       }
     } else {
-      // Cloudinary disabled, generate anyway
+      // Storage disabled, generate anyway
       finalUrl = await this.uploadStaticToCloudinary(text, language, key);
     }
 
     if (finalUrl) {
-      this.staticAudioUrls.set(cacheKey, finalUrl);
+      this.staticAudioUrls.set(cacheKey, stripQueryParams(finalUrl));
       logger.debug(`✅ Generated ${cacheKey}: ${text.substring(0, 50)}...`);
     } else {
       logger.error(
@@ -324,7 +346,7 @@ class StaticAudioService {
   }
 
   /**
-   * Upload static audio file to Cloudinary directly from TTS buffer
+   * Upload static audio file using unified storage method
    */
   async uploadStaticToCloudinary(
     text: string,
@@ -367,21 +389,26 @@ class StaticAudioService {
         }
       }
 
+      // Use unified upload method (handles local first, then Cloudinary)
       const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(
         audioBuffer,
         {
           publicId,
           folder: `${config.cloudinary.folder}/static`,
+          type: 'static',
+          language,
+          textKey
         }
       );
-
+      
       if (cloudinaryResult) {
-        logger.info(`✅ Successfully uploaded static audio to Cloudinary:`);
+        logger.info(`✅ Successfully saved static audio:`);
         logger.info(`   📄 File: ${language}_${textKey}`);
-        logger.info(`   🔗 PublicId: ${cloudinaryResult.publicId}`);
         logger.info(`   🌐 URL: ${cloudinaryResult.secureUrl}`);
         return cloudinaryResult.secureUrl;
       }
+
+
     } catch (error) {
       logger.warn(
         `Failed to upload static audio to Cloudinary: ${language}_${textKey}`,

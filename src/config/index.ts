@@ -67,6 +67,12 @@ export const config = {
     },
   },
 
+  // Audio storage configuration
+  audio: {
+    useLocal: process.env.USE_LOCAL_AUDIO === "true" || false,
+    localPath: process.env.LOCAL_AUDIO_PATH || "./public/audio",
+  },
+
   // Cloudinary configuration
   cloudinary: {
     useCloudinary: process.env.USE_CLOUDINARY === "true" || false,

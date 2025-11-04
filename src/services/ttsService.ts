@@ -3,6 +3,7 @@ import FormData from "form-data";
 import config from "../config";
 import logger from "../utils/logger";
 import cloudinaryService from "./cloudinaryService";
+import localAudioService from "./localAudioService";
 // import Spitch from "spitch";
 import { AudioProcessor } from "../utils/audioProcessor";
 // import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
@@ -283,8 +284,8 @@ class TTSService {
         logger.warn('ffmpeg not available, using original audio quality');
       }
 
-      // Upload to Cloudinary if enabled
-      if (cloudinaryService.isEnabled()) {
+      // Upload to storage (local first, then Cloudinary)
+      if (localAudioService.isEnabled() || cloudinaryService.isEnabled()) {
         // IMPORTANT: Do NOT provide publicId for dynamic AI responses - let Cloudinary generate unique filenames
         // This prevents caching and ensures each AI response gets fresh audio (no reuse)
         const timestamp = Date.now();
@@ -293,6 +294,8 @@ class TTSService {
           {
             folder: config.cloudinary.folder,
             filename: `dynamic_spitch_${phoneNumber}_${language}_${timestamp}`,
+            type: 'dynamic',
+            language
           }
         );
 
@@ -302,7 +305,7 @@ class TTSService {
           );
           return cloudinaryResult.secureUrl;
         } else {
-          logger.warn("Cloudinary upload failed, falling back to data URL");
+          logger.warn("Audio upload failed, falling back to data URL");
         }
       }
 
@@ -365,14 +368,16 @@ class TTSService {
             }
           }
 
-          // Upload to Cloudinary
-          if (cloudinaryService.isEnabled()) {
+          // Upload to storage (local first, then Cloudinary)
+          if (localAudioService.isEnabled() || cloudinaryService.isEnabled()) {
             // Do NOT provide publicId - ensure fresh upload every time
             const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(
               buffer,
               {
                 folder: config.cloudinary.folder,
                 filename: `ai-response-${Date.now()}`,
+                type: 'dynamic',
+                language
               }
             );
 

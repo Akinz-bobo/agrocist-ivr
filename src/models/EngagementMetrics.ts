@@ -314,7 +314,7 @@ const EngagementMetricsSchema: Schema = new Schema({
   }
 }, {
   timestamps: true, // Automatically adds createdAt and updatedAt
-  collection: 'engagement_metrics'
+  collection: 'ivr'
 });
 
 // Indexes for better query performance

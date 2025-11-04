@@ -3,6 +3,7 @@ import config from "../config";
 import logger from "../utils/logger";
 import ttsService, { TTSOptions } from "./ttsService";
 import staticAudioService from "./staticAudioService";
+import { stripQueryParams } from "../utils/urlUtils";
 
 class AfricasTalkingService {
   private client;
@@ -25,7 +26,7 @@ class AfricasTalkingService {
     // Generate TTS audio for the main text using proper voice selection
     const audioUrl = await this.generateTTSAudio(text, language);
     response += audioUrl ? 
-      `  <Play url="${audioUrl}"/>` : 
+      `  <Play url="${stripQueryParams(audioUrl)}"/>` : 
       `  <Say>${this.escapeXML(text)}</Say>`;
 
     switch (nextAction) {
@@ -41,7 +42,7 @@ class AfricasTalkingService {
       case "end":
         const endAudioUrl = staticAudioService.getStaticAudioUrl(language, 'goodbye');
         if (endAudioUrl) {
-          response += `  <Play url="${endAudioUrl}"/>`;
+          response += `  <Play url="${stripQueryParams(endAudioUrl)}"/>`;
         } else {
           const endText = staticAudioService.getStaticText(language, 'goodbye');
           response += `  <Say voice="${this.getVoiceForLanguage(language)}" playBeep="false">${this.escapeXML(endText)}</Say>`;
@@ -86,7 +87,7 @@ class AfricasTalkingService {
   async generateRecordingResponse(prompt: string, language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
     const audioUrl = await this.generateTTSAudio(prompt, language);
     const playTag = audioUrl ? 
-      `<Play url="${audioUrl}"/>` : 
+      `<Play url="${stripQueryParams(audioUrl)}"/>` : 
       `<Say>${this.escapeXML(prompt)}</Say>`;
     
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -110,7 +111,7 @@ class AfricasTalkingService {
     if (audioUrl) {
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play url="${audioUrl}"/>
+  <Play url="${stripQueryParams(audioUrl)}"/>
   <Redirect>${config.webhook.baseUrl}/voice</Redirect>
 </Response>`;
     }
@@ -145,7 +146,7 @@ class AfricasTalkingService {
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
-    <Play url="${audioUrl}"/>
+    <Play url="${stripQueryParams(audioUrl)}"/>
   </Record>
 </Response>`;
     }
@@ -167,7 +168,7 @@ class AfricasTalkingService {
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
-    <Play url="${audioUrl}"/>
+    <Play url="${stripQueryParams(audioUrl)}"/>
   </Record>
 </Response>`;
     }
@@ -198,7 +199,7 @@ class AfricasTalkingService {
     let playTag: string;
     
     if (audioUrl) {
-      playTag = `<Play url="${audioUrl}"/>`;
+      playTag = `<Play url="${stripQueryParams(audioUrl)}"/>`;
     } else {
       // Fallback to static text if audio not available
       const staticPrompt = staticAudioService.getStaticText(langCode, 'postAIMenu');
@@ -234,8 +235,8 @@ ${welcomeXML}
     const audioUrl = staticAudioService.getStaticAudioUrl('en', 'welcome');
 
     if (audioUrl) {
-      logger.info(`📢 Welcome audio URL (static): ${audioUrl}`);
-      return `    <Play url="${audioUrl}"/>`;
+      logger.info(`📢 Welcome audio URL (static): ${stripQueryParams(audioUrl)}`);
+      return `    <Play url="${stripQueryParams(audioUrl)}"/>`;
     }
 
     // Fallback to text if static audio not available
@@ -264,7 +265,7 @@ ${welcomeXML}
     const audioUrl = staticAudioService.getStaticAudioUrl(language, 'transfer');
     
     if (audioUrl) {
-      return `<Play url="${audioUrl}"/>
+      return `<Play url="${stripQueryParams(audioUrl)}"/>
   <Dial phoneNumbers="${config.agent.phoneNumber}" record="true" sequential="true" callbackUrl="${config.webhook.baseUrl}/voice/transfer"/>`;
     }
 

@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import config from "../config";
 import logger from "../utils/logger";
+import localAudioService from "./localAudioService";
 
 export interface CloudinaryUploadResult {
   url: string;
@@ -140,7 +141,7 @@ class CloudinaryService {
   }
 
   /**
-   * Upload audio buffer directly to Cloudinary (without saving to disk first)
+   * Upload audio buffer - checks local storage first, then Cloudinary
    */
   async uploadAudioBuffer(
     buffer: Buffer,
@@ -148,16 +149,39 @@ class CloudinaryService {
       publicId?: string;
       folder?: string;
       filename?: string;
+      type?: 'static' | 'dynamic';
+      language?: string;
+      textKey?: string;
     } = {}
   ): Promise<CloudinaryUploadResult | null> {
+    // Check local storage first - if enabled, save locally and return
+    if (localAudioService.isEnabled()) {
+      const localUrl = await localAudioService.saveAudioBuffer(buffer, {
+        type: options.type || 'dynamic',
+        filename: options.filename,
+        language: options.language,
+        textKey: options.textKey
+      });
+      
+      if (localUrl) {
+        const fullUrl = `${config.webhook.baseUrl}${localUrl}`;
+        logger.info(`✅ Saved audio locally (Cloudinary skipped): ${fullUrl}`);
+        // Return a CloudinaryUploadResult-like object for compatibility
+        return {
+          url: fullUrl,
+          secureUrl: fullUrl,
+          publicId: options.publicId || 'local',
+          format: 'mp3',
+          resourceType: 'video'
+        };
+      }
+    }
+    
+    // Only proceed with Cloudinary if local storage is disabled or failed
     if (!this.isEnabled()) {
       logger.debug("Cloudinary not enabled, skipping buffer upload");
       return null;
     }
-
-    console.log(
-      "Uploading audio buffer to Cloudinary..., I AM BEING CALLED RIGHT NOW."
-    );
     try {
       const uploadOptions: UploadApiOptions = {
         resource_type: "video" as const,
@@ -320,7 +344,7 @@ class CloudinaryService {
   }
 
   /**
-   * Get optimized Cloudinary URL with transformations
+   * Get optimized Cloudinary URL with transformations and signature
    */
   getOptimizedUrl(
     publicId: string,

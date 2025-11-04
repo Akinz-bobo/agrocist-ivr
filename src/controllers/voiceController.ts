@@ -724,22 +724,21 @@ class VoiceController {
         });
       });
 
-      // Respond with extended processing message to give AI time to complete
+      // Respond with initial processing message and 8-second analysis wait
       const processingAudio = await this.generateStaticAudioSay(
         "processing",
         sessionLanguage
       );
-      const waitAudio = await this.generateStaticAudioSay(
-        "wait",
+      const analysisWaitAudio = await this.generateStaticAudioSay(
+        "analysisWait",
         sessionLanguage
       );
 
-      // Play messages multiple times to keep call active while AI processes (~15-20 seconds total)
-      // Note: Africa's Talking <Pause> tag doesn't work reliably, so we repeat audio instead
+      // Play processing message followed by 8-second analysis wait before checking AI status
       const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${processingAudio}
-  ${waitAudio}
+  ${analysisWaitAudio}
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
 
@@ -1013,6 +1012,7 @@ class VoiceController {
     textKey:
       | "welcome"
       | "processing"
+      | "analysisWait"
       | "error"
       | "goodbye"
       | "noRecording"
@@ -1406,7 +1406,7 @@ class VoiceController {
         return;
       }
 
-      // If not ready yet, play wait message multiple times and redirect back
+      // If not ready yet, play single wait message and redirect back (no repetition)
       logger.info(
         `⏳ AI still processing for session ${sessionId}, playing wait message...`
       );
@@ -1418,8 +1418,6 @@ class VoiceController {
 
       const redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${waitAudio}
-  ${waitAudio}
   ${waitAudio}
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
