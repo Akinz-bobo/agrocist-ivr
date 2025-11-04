@@ -3,14 +3,15 @@ import FormData from "form-data";
 import config from "../config";
 import logger from "../utils/logger";
 import cloudinaryService from "./cloudinaryService";
-import Spitch from "spitch";
+// import Spitch from "spitch";
+import { AudioProcessor } from "../utils/audioProcessor";
 // import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 
 // const elevenlabs = new ElevenLabsClient({
 //   apiKey: process.env.ELEVENLABS_API_KEY,
 // });
 
-const spitch = new Spitch({ apiKey: process.env.SPITCH_API_KEY });
+// const spitch = new Spitch({ apiKey: process.env.SPITCH_API_KEY });
 
 export interface TTSOptions {
   language: "en" | "yo" | "ha" | "ig";
@@ -92,67 +93,67 @@ class TTSService {
   /**
    * Generate TTS audio buffer using Spitch API
    */
-  private async generateSpitchBuffer(
-    text: string,
-    language: "en" | "yo" | "ha" | "ig"
-  ): Promise<Buffer | null> {
-    logger.debug(
-      `🔍 Spitch TTS Request - Language: ${language}, Text: "${text}" (length: ${
-        text?.length || 0
-      })`
-    );
+  // private async generateSpitchBuffer(
+  //   text: string,
+  //   language: "en" | "yo" | "ha" | "ig"
+  // ): Promise<Buffer | null> {
+  //   logger.debug(
+  //     `🔍 Spitch TTS Request - Language: ${language}, Text: "${text}" (length: ${
+  //       text?.length || 0
+  //     })`
+  //   );
 
-    if (!text || text.trim() === "") {
-      logger.error(
-        `❌ Empty text provided for Spitch TTS: language=${language}, text="${text}"`
-      );
-      return null;
-    }
+  //   if (!text || text.trim() === "") {
+  //     logger.error(
+  //       `❌ Empty text provided for Spitch TTS: language=${language}, text="${text}"`
+  //     );
+  //     return null;
+  //   }
 
-    try {
-      // Voice configurations for different languages
-      const voiceConfigs = {
-        en: "lucy" as const,
-        yo: "sade" as const,
-        ha: "zainab" as const,
-        ig: "amara" as const,
-      };
+  //   try {
+  //     // Voice configurations for different languages
+  //     const voiceConfigs = {
+  //       en: "lucy" as const,
+  //       yo: "sade" as const,
+  //       ha: "zainab" as const,
+  //       ig: "amara" as const,
+  //     };
 
-      const voiceId = voiceConfigs[language];
-      if (!voiceId) {
-        logger.warn(`No voice configuration found for language: ${language}`);
-        return null;
-      }
+  //     const voiceId = voiceConfigs[language];
+  //     if (!voiceId) {
+  //       logger.warn(`No voice configuration found for language: ${language}`);
+  //       return null;
+  //     }
 
-      // Generate audio using Spitch SDK
-      const res = await spitch.speech.generate({
-        text: text,
-        language: language,
-        voice: voiceId,
-        format: "wav",
-      });
+  //     // Generate audio using Spitch SDK
+  //     const res = await spitch.speech.generate({
+  //       text: text,
+  //       language: language,
+  //       voice: voiceId,
+  //       format: "wav",
+  //     });
 
-      const blob = await res.blob();
-      const buffer = Buffer.from(await blob.arrayBuffer());
+  //     const blob = await res.blob();
+  //     const buffer = Buffer.from(await blob.arrayBuffer());
 
-      logger.info(`✅ Spitch audio generated: ${buffer.length} bytes`);
-      return buffer;
-    } catch (error: any) {
-      logger.error(`Spitch TTS failed for ${language}:`, {
-        message: error.message,
-        statusCode: error.statusCode,
-        code: error.code,
-      });
+  //     logger.info(`✅ Spitch audio generated: ${buffer.length} bytes`);
+  //     return buffer;
+  //   } catch (error: any) {
+  //     logger.error(`Spitch TTS failed for ${language}:`, {
+  //       message: error.message,
+  //       statusCode: error.statusCode,
+  //       code: error.code,
+  //     });
 
-      if (error.statusCode === 401 || error.message?.includes("401")) {
-        logger.error(`Spitch API authentication failed - check API key`);
-      } else if (error.statusCode === 429 || error.message?.includes("429")) {
-        logger.warn(`Spitch API rate limit exceeded for ${language}`);
-      }
+  //     if (error.statusCode === 401 || error.message?.includes("401")) {
+  //       logger.error(`Spitch API authentication failed - check API key`);
+  //     } else if (error.statusCode === 429 || error.message?.includes("429")) {
+  //       logger.warn(`Spitch API rate limit exceeded for ${language}`);
+  //     }
 
-      return null;
-    }
-  }
+  //     return null;
+  //   }
+  // }
 
   /**
    * COMMENTED OUT - ElevenLabs TTS Implementation
@@ -266,9 +267,21 @@ class TTSService {
         timeout: 30000,
       });
 
-      // Get audio buffer and upload to Cloudinary
-      const buffer = Buffer.from(response.data);
+      // Get audio buffer and convert to 8kHz
+      let buffer = Buffer.from(response.data);
       logger.info(`Generated DSN TTS audio buffer: ${buffer.length} bytes`);
+      
+      // Convert to 8kHz if ffmpeg is available
+      if (await AudioProcessor.isFFmpegAvailable()) {
+        try {
+          buffer = await AudioProcessor.convertTo8kHz(buffer);
+          logger.info(`Converted audio to 8kHz: ${buffer.length} bytes`);
+        } catch (error) {
+          logger.warn(`Failed to convert audio to 8kHz: ${error}`);
+        }
+      } else {
+        logger.warn('ffmpeg not available, using original audio quality');
+      }
 
       // Upload to Cloudinary if enabled
       if (cloudinaryService.isEnabled()) {
@@ -337,10 +350,20 @@ class TTSService {
             timeout: 30000,
           });
 
-          const buffer = Buffer.from(response.data);
+          let buffer = Buffer.from(response.data);
           logger.info(
             `✅ TTS successful after re-authentication: ${buffer.length} bytes`
           );
+          
+          // Convert to 8kHz if ffmpeg is available
+          if (await AudioProcessor.isFFmpegAvailable()) {
+            try {
+              buffer = await AudioProcessor.convertTo8kHz(buffer);
+              logger.info(`Converted retry audio to 8kHz: ${buffer.length} bytes`);
+            } catch (error) {
+              logger.warn(`Failed to convert retry audio to 8kHz: ${error}`);
+            }
+          }
 
           // Upload to Cloudinary
           if (cloudinaryService.isEnabled()) {

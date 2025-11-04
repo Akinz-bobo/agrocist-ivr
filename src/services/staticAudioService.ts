@@ -1,15 +1,14 @@
-import ttsService, { TTSOptions } from "./ttsService";
 import logger from "../utils/logger";
 import cloudinaryService from "./cloudinaryService";
 import config from "../config";
-import Spitch from "spitch";
+// import Spitch from "spitch";
 // import { ElevenLabsClient, play } from "@elevenlabs/elevenlabs-js";
 
 // const elevenlabs = new ElevenLabsClient({
 //   apiKey: process.env.ELEVENLABS_API_KEY,
 // });
 
-const spitch = new Spitch({ apiKey: process.env.SPITCH_API_KEY });
+// const spitch = new Spitch({ apiKey: process.env.SPITCH_API_KEY });
 
 export interface StaticAudioTexts {
   welcome: string;
@@ -119,19 +118,19 @@ class StaticAudioService {
    * Pre-generate all static audio files at startup
    */
   async preGenerateStaticAudio(): Promise<void> {
-    logger.info("🎵 Starting static audio pre-generation with Spitch...");
+    logger.info("🎵 Starting static audio pre-generation with DSN API...");
     const startTime = Date.now();
     let successCount = 0;
     let failedCount = 0;
 
-    // Check Spitch API key
-    if (!process.env.SPITCH_API_KEY) {
+    // Check DSN API configuration
+    if (!config.dsn.username || !config.dsn.password) {
       logger.error(
-        "❌ Spitch API key not configured - static audio generation failed"
+        "❌ DSN API credentials not configured - static audio generation failed"
       );
       logger.info("🎵 Static audio pre-generation completed in 0ms");
       logger.info(
-        `✅ Success: 0, ❌ Failed: 0, Total: 0 (failed due to missing Spitch API key)`
+        `✅ Success: 0, ❌ Failed: 0, Total: 0 (failed due to missing DSN credentials)`
       );
       return;
     }
@@ -346,7 +345,7 @@ class StaticAudioService {
       );
 
       // Generate TTS audio buffer directly (don't save to disk)
-      const audioBuffer = await this.generateTTSBuffer(
+      let audioBuffer = await this.generateTTSBuffer(
         text,
         language as "en" | "yo" | "ha" | "ig"
       );
@@ -355,6 +354,17 @@ class StaticAudioService {
           `Failed to generate TTS buffer for static audio: ${language}_${textKey}`
         );
         return null;
+      }
+      
+      // Convert to 8kHz if ffmpeg is available
+      const { AudioProcessor } = await import('../utils/audioProcessor');
+      if (await AudioProcessor.isFFmpegAvailable()) {
+        try {
+          audioBuffer = await AudioProcessor.convertTo8kHz(audioBuffer);
+          logger.info(`Converted static audio to 8kHz: ${audioBuffer.length} bytes`);
+        } catch (error) {
+          logger.warn(`Failed to convert static audio to 8kHz: ${error}`);
+        }
       }
 
       const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(
@@ -415,7 +425,7 @@ class StaticAudioService {
       if (!token) {
         logger.warn("DSN API authentication failed");
         return null;
-      }
+      } 
 
       // Voice configurations
       const voiceConfigs: Record<string, any> = {
@@ -437,8 +447,6 @@ class StaticAudioService {
       formData.append("language", voiceConfig.language);
       formData.append("voice", voiceConfig.voiceId);
       formData.append("format", "mp3");
-      formData.append("quality", "medium");
-      formData.append("encoding", "mp3_64");
 
       // Make request to DSN TTS API with form-data
       const response = await axios({
@@ -493,6 +501,18 @@ class StaticAudioService {
         }
       }
 
+      // Convert to 8kHz if ffmpeg is available
+      const { AudioProcessor } = await import('../utils/audioProcessor');
+      if (await AudioProcessor.isFFmpegAvailable()) {
+        try {
+          const convertedBuffer = await AudioProcessor.convertTo8kHz(buffer);
+          logger.info(`Converted DSN buffer to 8kHz: ${convertedBuffer.length} bytes`);
+          return convertedBuffer;
+        } catch (error) {
+          logger.warn(`Failed to convert DSN buffer to 8kHz: ${error}`);
+        }
+      }
+      
       return buffer;
     } catch (error: any) {
       // Handle common timeout and connection errors concisely
