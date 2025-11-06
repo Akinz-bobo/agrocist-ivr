@@ -232,6 +232,17 @@ class SessionManager {
     }
   }
 
+  bufferRecordingUrl(sessionId: string, recordingUrl: string): void {
+    const session = this.getSession(sessionId);
+    if (session && session.engagementBuffer) {
+      if (!session.engagementBuffer.recordingUrls) {
+        session.engagementBuffer.recordingUrls = [];
+      }
+      session.engagementBuffer.recordingUrls.push(recordingUrl);
+      this.saveSession(session);
+    }
+  }
+
   // Cleanup method for graceful shutdown
   destroy(): void {
     if (this.cleanupInterval) {

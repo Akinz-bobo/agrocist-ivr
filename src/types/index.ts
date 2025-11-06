@@ -44,6 +44,7 @@ export interface CallSession {
       state: string;
       severity: 'low' | 'medium' | 'high';
     }>;
+    recordingUrls?: string[];
     terminationReason?: string;
     completedSuccessfully?: boolean;
   };

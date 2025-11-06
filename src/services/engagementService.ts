@@ -526,21 +526,57 @@ class EngagementService {
       const endTime = new Date();
       const totalDuration = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
 
-      // Extract interactions from engagement buffer
-      const interactions = (engagementBuffer.aiInteractionsDetailed || []).map((interaction: any) => ({
-        userQuery: interaction.userQuery || '',
-        aiResponse: interaction.aiResponse || '',
-        timestamp: interaction.timestamp || new Date()
-      }));
+      // Create or update engagement metrics with all buffered data
+      const engagementData = {
+        sessionId,
+        phoneNumber,
+        callStartTime: startTime,
+        callEndTime: endTime,
+        totalDuration,
+        selectedLanguage: engagementBuffer.selectedLanguage,
+        languageSelectionTime: engagementBuffer.languageSelectionTime,
+        currentState: engagementBuffer.currentState || 'CALL_ENDED',
+        finalState: engagementBuffer.currentState || 'CALL_ENDED',
+        stateTransitions: engagementBuffer.stateTransitions || [],
+        aiInteractions: engagementBuffer.aiInteractionsDetailed || [],
+        totalAIInteractions: (engagementBuffer.aiInteractionsDetailed || []).length,
+        recordingUrls: engagementBuffer.recordingUrls || [],
+        totalRecordingTime: (engagementBuffer.aiInteractionsDetailed || []).reduce((sum: number, interaction: any) => sum + (interaction.userRecordingDuration || 0), 0),
+        dtmfInputs: engagementBuffer.dtmfInputs || [],
+        wasTransferredToAgent: engagementBuffer.wasTransferredToAgent || false,
+        transferRequestTime: engagementBuffer.transferRequestTime,
+        completedSuccessfully: engagementBuffer.completedSuccessfully || false,
+        terminationReason: engagementBuffer.terminationReason || 'USER_HANGUP',
+        terminationTime: endTime,
+        errorRecords: engagementBuffer.errorRecords || [],
+        userAgent: engagementBuffer.userAgent,
+        ipAddress: engagementBuffer.ipAddress,
+        callId: engagementBuffer.callId,
+        averageRecordingLength: 0,
+        serverVersion: '0.1.0'
+      };
 
-      logger.info(`💾 Engagement data already tracked in EngagementMetrics: ${sessionId}`);
+      // Calculate average recording length
+      if (engagementData.totalAIInteractions > 0) {
+        engagementData.averageRecordingLength = engagementData.totalRecordingTime / engagementData.totalAIInteractions;
+      }
+
+      // Upsert the engagement metrics
+      await EngagementMetrics.findOneAndUpdate(
+        { sessionId },
+        { $set: engagementData },
+        { upsert: true, new: true }
+      );
+
+      logger.info(`💾 Engagement data flushed to database: ${sessionId}`);
       logger.info(`📞 Session: ${phoneNumber} | Language: ${engagementBuffer.selectedLanguage || 'en'} | Duration: ${totalDuration}s`);
-      logger.info(`💬 Interactions: ${interactions.length}`);
+      logger.info(`💬 Interactions: ${engagementData.totalAIInteractions}`);
+      logger.info(`🎙️ Recordings: ${(engagementData.recordingUrls || []).length} URLs saved`);
 
       // Log each interaction
-      interactions.forEach((interaction: any, index: number) => {
-        logger.info(`  [${index + 1}] User: "${interaction.userQuery}"`);
-        logger.info(`      AI: "${interaction.aiResponse}"`);
+      (engagementBuffer.aiInteractionsDetailed || []).forEach((interaction: any, index: number) => {
+        logger.info(`[${index + 1}] User: "${interaction.userQuery}"`);
+        logger.info(`AI: "${interaction.aiResponse}"`);
       });
 
     } catch (error) {

@@ -86,6 +86,9 @@ export interface IEngagementMetricsDoc {
   aiInteractions: AIInteraction[];
   totalAIInteractions: number;
   
+  // Recording URLs
+  recordingUrls: string[]; // All recording URLs from the session
+  
   // User engagement metrics
   totalRecordingTime: number; // Total time spent recording in seconds
   averageRecordingLength: number; // Average length of recordings
@@ -231,6 +234,11 @@ const EngagementMetricsSchema: Schema = new Schema({
     type: Number,
     default: 0
   },
+  
+  // Recording URLs
+  recordingUrls: [{
+    type: String
+  }],
   
   // User engagement metrics
   totalRecordingTime: {

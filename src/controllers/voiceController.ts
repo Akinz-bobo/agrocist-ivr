@@ -692,6 +692,9 @@ class VoiceController {
         recordingUrl: recording,
         recordingDuration: callRecordingDurationInSeconds,
       });
+      
+      // Buffer recording URL for database storage
+      sessionManager.bufferRecordingUrl(sessionId, recording);
 
       // Track recording state transition (buffered - no DB write)
       sessionManager.bufferStateTransition(
