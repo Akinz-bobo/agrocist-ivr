@@ -29,8 +29,14 @@ export interface CallSession {
     aiInteractionsDetailed: Array<{
       timestamp: Date;
       userRecordingDuration: number;
-      userQuery: string;
-      aiResponse: string;
+      userQuery: {
+        query: string;
+        url?: string;
+      };
+      aiResponse: {
+        response: string;
+        url?: string;
+      };
       aiProcessingTime: number;
       ttsGenerationTime: number;
       language: 'en' | 'yo' | 'ha' | 'ig';
@@ -44,7 +50,7 @@ export interface CallSession {
       state: string;
       severity: 'low' | 'medium' | 'high';
     }>;
-    recordingUrls?: string[];
+
     terminationReason?: string;
     completedSuccessfully?: boolean;
   };

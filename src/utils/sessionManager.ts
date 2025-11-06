@@ -154,8 +154,8 @@ class SessionManager {
   bufferAIInteraction(
     sessionId: string,
     userRecordingDuration: number,
-    userQuery: string,
-    aiResponse: string,
+    userQuery: { query: string; url?: string },
+    aiResponse: { response: string; url?: string },
     aiProcessingTime: number,
     ttsGenerationTime: number,
     language: 'en' | 'yo' | 'ha' | 'ig',
@@ -185,6 +185,17 @@ class SessionManager {
       const lastInteraction = session.engagementBuffer.aiInteractionsDetailed[session.engagementBuffer.aiInteractionsDetailed.length - 1];
       if (lastInteraction) {
         lastInteraction.ttsGenerationTime = ttsGenerationTime;
+        this.saveSession(session);
+      }
+    }
+  }
+
+  updateLastInteractionAIResponseUrl(sessionId: string, aiResponseUrl: string): void {
+    const session = this.getSession(sessionId);
+    if (session && session.engagementBuffer && session.engagementBuffer.aiInteractionsDetailed.length > 0) {
+      const lastInteraction = session.engagementBuffer.aiInteractionsDetailed[session.engagementBuffer.aiInteractionsDetailed.length - 1];
+      if (lastInteraction && lastInteraction.aiResponse) {
+        lastInteraction.aiResponse.url = aiResponseUrl;
         this.saveSession(session);
       }
     }
@@ -232,16 +243,7 @@ class SessionManager {
     }
   }
 
-  bufferRecordingUrl(sessionId: string, recordingUrl: string): void {
-    const session = this.getSession(sessionId);
-    if (session && session.engagementBuffer) {
-      if (!session.engagementBuffer.recordingUrls) {
-        session.engagementBuffer.recordingUrls = [];
-      }
-      session.engagementBuffer.recordingUrls.push(recordingUrl);
-      this.saveSession(session);
-    }
-  }
+
 
   // Cleanup method for graceful shutdown
   destroy(): void {

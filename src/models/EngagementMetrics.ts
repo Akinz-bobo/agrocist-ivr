@@ -41,12 +41,18 @@ export interface StateTransition {
   error?: string | undefined; // Error message if transition was due to error
 }
 
-// Interface for AI interactions
+// Interface for AI interactions with audio URLs
 export interface AIInteraction {
   timestamp: Date;
   userRecordingDuration: number; // Duration of user's recording in seconds
-  userQuery: string; // Transcribed user query
-  aiResponse: string; // AI generated response
+  userQuery: {
+    query: string; // Transcribed user query text
+    url?: string; // Cloudinary URL to original user voice recording
+  };
+  aiResponse: {
+    response: string; // AI generated response text
+    url?: string; // Cloudinary URL to TTS audio of AI response
+  };
   aiProcessingTime: number; // Time taken for AI to process (milliseconds)
   ttsGenerationTime: number; // Time taken to generate TTS (milliseconds)
   language: string; // Language used for interaction
@@ -86,8 +92,7 @@ export interface IEngagementMetricsDoc {
   aiInteractions: AIInteraction[];
   totalAIInteractions: number;
   
-  // Recording URLs
-  recordingUrls: string[]; // All recording URLs from the session
+
   
   // User engagement metrics
   totalRecordingTime: number; // Total time spent recording in seconds
@@ -209,12 +214,18 @@ const EngagementMetricsSchema: Schema = new Schema({
       required: true
     },
     userQuery: {
-      type: String,
-      required: true
+      query: {
+        type: String,
+        required: true
+      },
+      url: String
     },
     aiResponse: {
-      type: String,
-      required: true
+      response: {
+        type: String,
+        required: true
+      },
+      url: String
     },
     aiProcessingTime: {
       type: Number,
@@ -234,11 +245,7 @@ const EngagementMetricsSchema: Schema = new Schema({
     type: Number,
     default: 0
   },
-  
-  // Recording URLs
-  recordingUrls: [{
-    type: String
-  }],
+
   
   // User engagement metrics
   totalRecordingTime: {

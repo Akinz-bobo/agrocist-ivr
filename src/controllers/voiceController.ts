@@ -692,9 +692,6 @@ class VoiceController {
         recordingUrl: recording,
         recordingDuration: callRecordingDurationInSeconds,
       });
-      
-      // Buffer recording URL for database storage
-      sessionManager.bufferRecordingUrl(sessionId, recording);
 
       // Track recording state transition (buffered - no DB write)
       sessionManager.bufferStateTransition(
@@ -737,7 +734,7 @@ class VoiceController {
         sessionLanguage
       );
 
-      // Play processing message followed by 8-second analysis wait before checking AI status
+      // Play processing message and analysis wait, then immediately check AI status
       const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${processingAudio}
@@ -1190,22 +1187,31 @@ class VoiceController {
         aiReady: true,
       });
 
-      // 6. Track AI interaction in engagement metrics (buffered - no DB write)
+      // 6. Upload user recording to Cloudinary and track AI interaction
       const session = sessionManager.getSession(sessionId);
       const recordingDuration = session?.context?.recordingDuration || 0;
+      
+      // Upload user recording to Cloudinary in background
+      const audioUploadService = (await import('../services/audioUploadService')).default;
+      let userRecordingUrl: string | undefined;
+      try {
+        userRecordingUrl = await audioUploadService.uploadUserRecording(recordingUrl, sessionId) || undefined;
+      } catch (error) {
+        logger.warn(`Failed to upload user recording for ${sessionId}:`, error);
+      }
 
       sessionManager.bufferAIInteraction(
         sessionId,
         recordingDuration,
-        farmerText,
-        truncatedResponse,
+        { query: farmerText, url: userRecordingUrl },
+        { response: truncatedResponse }, // URL will be added when TTS is ready
         aiTime,
         0, // TTS generation time (generated in next step)
         language,
         aiResponse.confidence
       );
       logger.info(
-        `📊 Buffered AI interaction for ${sessionId} (${aiTime}ms processing)`
+        `📊 Buffered AI interaction for ${sessionId} (${aiTime}ms processing, recording uploaded: ${!!userRecordingUrl})`
       );
 
       // 7. Mark TTS generation as "in progress" and start in background
@@ -1225,9 +1231,21 @@ class VoiceController {
             preGeneratedAudioTag: audioTag,
             ttsGenerating: false,
           });
-          // Update the TTS generation time in the last interaction
+          // Update the TTS generation time and AI response URL in the last interaction
           sessionManager.updateLastInteractionTTSTime(sessionId, ttsTime);
-          logger.info(`✅ TTS audio pre-generated and cached for ${sessionId} in ${ttsTime}ms`);
+          
+          // Extract Cloudinary URL from audioTag if it's a Play tag
+          const urlMatch = audioTag.match(/url="([^"]+)"/); 
+          const aiResponseUrl = urlMatch ? urlMatch[1] : undefined;
+          if (aiResponseUrl) {
+            sessionManager.updateLastInteractionAIResponseUrl(sessionId, aiResponseUrl);
+          }
+          
+          logger.info(`✅ TTS audio pre-generated and cached for ${sessionId} in ${ttsTime}ms, URL: ${aiResponseUrl}`);
+          
+          // Emit event that audio is ready
+          const aiAudioEventEmitter = require('../utils/aiAudioEventEmitter').default;
+          aiAudioEventEmitter.emitAudioReady(sessionId, audioTag);
         })
         .catch((err) => {
           sessionManager.updateSessionContext(sessionId, {
@@ -1305,6 +1323,12 @@ class VoiceController {
       if (session.context.aiReady && session.context.aiResponse) {
         logger.info(`✅ AI response ready for session ${sessionId}`);
         const aiResponse = session.context.aiResponse;
+        
+        // Reset wait tracking when AI is ready
+        sessionManager.updateSessionContext(sessionId, { 
+          aiCheckStartTime: undefined,
+          waitMessagePlayed: false 
+        });
 
         // Track state transition to AI response (buffered - no DB write)
         sessionManager.bufferStateTransition(
@@ -1409,21 +1433,48 @@ class VoiceController {
         return;
       }
 
-      // If not ready yet, play single wait message and redirect back (no repetition)
-      logger.info(
-        `⏳ AI still processing for session ${sessionId}, playing wait message...`
-      );
+      // Track elapsed time since first check to determine when to play wait message
       const currentSession = sessionManager.getSession(sessionId);
       const lang = (currentSession?.context?.language ||
         currentSession?.language ||
         "en") as "en" | "yo" | "ha" | "ig";
-      const waitAudio = await this.generateStaticAudioSay("wait", lang);
-
-      const redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
+      
+      // Initialize check start time if not set
+      if (!currentSession?.context?.aiCheckStartTime) {
+        sessionManager.updateSessionContext(sessionId, { 
+          aiCheckStartTime: Date.now(),
+          waitMessagePlayed: false 
+        });
+      }
+      
+      const checkStartTime = currentSession?.context?.aiCheckStartTime || Date.now();
+      const elapsedSeconds = (Date.now() - checkStartTime) / 1000;
+      const waitMessagePlayed = currentSession?.context?.waitMessagePlayed || false;
+      
+      logger.info(
+        `⏳ AI still processing for session ${sessionId}, elapsed: ${elapsedSeconds.toFixed(1)}s, wait played: ${waitMessagePlayed}`
+      );
+      
+      let redirectXML: string;
+      
+      if (elapsedSeconds >= 6 && !waitMessagePlayed) {
+        // After 6 seconds, play wait message once
+        const waitAudio = await this.generateStaticAudioSay("wait", lang);
+        sessionManager.updateSessionContext(sessionId, { waitMessagePlayed: true });
+        redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${waitAudio}
+  <Pause length="2"/>
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
+      } else {
+        // Silent check every 2 seconds
+        redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Pause length="2"/>
+  <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
+</Response>`;
+      }
 
       res.set("Content-Type", "application/xml");
       res.send(redirectXML);

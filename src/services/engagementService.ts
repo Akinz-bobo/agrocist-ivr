@@ -187,8 +187,8 @@ class EngagementService {
     const interaction: AIInteraction = {
       timestamp: new Date(),
       userRecordingDuration,
-      userQuery,
-      aiResponse,
+      userQuery: { query: userQuery },
+      aiResponse: { response: aiResponse },
       aiProcessingTime,
       ttsGenerationTime,
       language,
@@ -380,146 +380,7 @@ class EngagementService {
   }
 
   /**
-   * Get session metrics from database
-   */
-  async getSessionMetrics(sessionId: string): Promise<IEngagementMetrics | null> {
-    try {
-      return await EngagementMetrics.findOne({ sessionId });
-    } catch (error) {
-      logger.error('Failed to get session metrics:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get engagement analytics for a date range
-   */
-  async getEngagementAnalytics(startDate?: Date, endDate?: Date): Promise<any> {
-    try {
-      const analytics = await EngagementMetrics.getEngagementAnalytics(startDate, endDate);
-      return analytics[0] || {};
-    } catch (error) {
-      logger.error('Failed to get engagement analytics:', error);
-      return {};
-    }
-  }
-
-  /**
-   * Get recent sessions with pagination
-   */
-  async getRecentSessions(
-    page: number = 1,
-    limit: number = 50,
-    phoneNumber?: string
-  ): Promise<{ sessions: any[], total: number, pages: number }> {
-    try {
-      const query: any = {};
-      if (phoneNumber) {
-        query.phoneNumber = phoneNumber;
-      }
-
-      const total = await EngagementMetrics.countDocuments(query);
-      const pages = Math.ceil(total / limit);
-      const skip = (page - 1) * limit;
-
-      const sessions = await EngagementMetrics.find(query)
-        .sort({ callStartTime: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean();
-
-      return { sessions, total, pages };
-    } catch (error) {
-      logger.error('Failed to get recent sessions:', error);
-      return { sessions: [], total: 0, pages: 0 };
-    }
-  }
-
-  /**
-   * Get engagement pattern analysis
-   */
-  async getEngagementPatterns(): Promise<any> {
-    try {
-      const pipeline = [
-        {
-          $group: {
-            _id: '$finalState',
-            count: { $sum: 1 },
-            averageDuration: { $avg: '$totalDuration' },
-            averageEngagementScore: { $avg: '$engagementScore' }
-          }
-        },
-        {
-          $sort: { count: -1 as const }
-        }
-      ];
-
-      const statePatterns = await EngagementMetrics.aggregate(pipeline);
-
-      // Get termination reason patterns
-      const terminationPipeline = [
-        {
-          $group: {
-            _id: '$terminationReason',
-            count: { $sum: 1 },
-            percentage: { $avg: 1 } // Will calculate percentage later
-          }
-        }
-      ];
-
-      const terminationPatterns = await EngagementMetrics.aggregate(terminationPipeline);
-      
-      // Get language preferences
-      const languagePipeline = [
-        {
-          $match: { selectedLanguage: { $exists: true } }
-        },
-        {
-          $group: {
-            _id: '$selectedLanguage',
-            count: { $sum: 1 },
-            averageEngagementScore: { $avg: '$engagementScore' }
-          }
-        }
-      ];
-
-      const languagePatterns = await EngagementMetrics.aggregate(languagePipeline);
-
-      return {
-        statePatterns,
-        terminationPatterns,
-        languagePatterns,
-        generatedAt: new Date()
-      };
-    } catch (error) {
-      logger.error('Failed to get engagement patterns:', error);
-      return {};
-    }
-  }
-
-  /**
-   * Cleanup old sessions (for maintenance)
-   */
-  async cleanupOldSessions(olderThanDays: number = 30): Promise<number> {
-    try {
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
-
-      const result = await EngagementMetrics.deleteMany({
-        callStartTime: { $lt: cutoffDate }
-      });
-
-      logger.info(`📊 Cleaned up ${result.deletedCount} old engagement records`);
-      return result.deletedCount;
-    } catch (error) {
-      logger.error('Failed to cleanup old sessions:', error);
-      return 0;
-    }
-  }
-
-  /**
    * Flush buffered engagement data to database (called when call ends)
-   * This writes all tracked data in one batch operation
    */
   async flushEngagementToDatabase(sessionId: string, engagementBuffer: any, phoneNumber: string, startTime: Date): Promise<void> {
     try {
@@ -540,7 +401,6 @@ class EngagementService {
         stateTransitions: engagementBuffer.stateTransitions || [],
         aiInteractions: engagementBuffer.aiInteractionsDetailed || [],
         totalAIInteractions: (engagementBuffer.aiInteractionsDetailed || []).length,
-        recordingUrls: engagementBuffer.recordingUrls || [],
         totalRecordingTime: (engagementBuffer.aiInteractionsDetailed || []).reduce((sum: number, interaction: any) => sum + (interaction.userRecordingDuration || 0), 0),
         dtmfInputs: engagementBuffer.dtmfInputs || [],
         wasTransferredToAgent: engagementBuffer.wasTransferredToAgent || false,
@@ -552,13 +412,12 @@ class EngagementService {
         userAgent: engagementBuffer.userAgent,
         ipAddress: engagementBuffer.ipAddress,
         callId: engagementBuffer.callId,
-        averageRecordingLength: 0,
         serverVersion: '0.1.0'
       };
 
       // Calculate average recording length
       if (engagementData.totalAIInteractions > 0) {
-        engagementData.averageRecordingLength = engagementData.totalRecordingTime / engagementData.totalAIInteractions;
+        (engagementData as any).averageRecordingLength = engagementData.totalRecordingTime / engagementData.totalAIInteractions;
       }
 
       // Upsert the engagement metrics
@@ -571,17 +430,15 @@ class EngagementService {
       logger.info(`💾 Engagement data flushed to database: ${sessionId}`);
       logger.info(`📞 Session: ${phoneNumber} | Language: ${engagementBuffer.selectedLanguage || 'en'} | Duration: ${totalDuration}s`);
       logger.info(`💬 Interactions: ${engagementData.totalAIInteractions}`);
-      logger.info(`🎙️ Recordings: ${(engagementData.recordingUrls || []).length} URLs saved`);
 
-      // Log each interaction
+      // Log each interaction with URLs
       (engagementBuffer.aiInteractionsDetailed || []).forEach((interaction: any, index: number) => {
-        logger.info(`[${index + 1}] User: "${interaction.userQuery}"`);
-        logger.info(`AI: "${interaction.aiResponse}"`);
+        logger.info(`[${index + 1}] User: "${interaction.userQuery?.query || interaction.userQuery}" (Recording: ${interaction.userQuery?.url ? 'Uploaded' : 'N/A'})`);
+        logger.info(`AI: "${interaction.aiResponse?.response || interaction.aiResponse}" (Audio: ${interaction.aiResponse?.url ? 'Generated' : 'N/A'})`);
       });
 
     } catch (error) {
       logger.error(`Failed to flush engagement data for session ${sessionId}:`, error);
-      // Don't throw - we don't want to block call termination if DB write fails
     }
   }
 }
