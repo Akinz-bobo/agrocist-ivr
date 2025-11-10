@@ -442,18 +442,10 @@ class StaticAudioService {
     }
 
     try {
-      const axios = require("axios");
-      const FormData = require("form-data");
 
-      // Reuse TTS authentication and generation logic
-      const ttsService = (await import("./ttsService")).default;
-      const token = await ttsService.authenticateDSN();
-
-      if (!token) {
-        logger.warn("DSN API authentication failed");
-        return null;
-      } 
-
+      // Use DSNService for TTS generation
+      const dsnService = (await import("../utils/DSNService")).default;
+      
       // Voice configurations
       const voiceConfigs: Record<string, any> = {
         en: { voiceId: "lucy", language: "en" },
@@ -468,47 +460,14 @@ class StaticAudioService {
         return null;
       }
 
-      // Create form data for the request
-      const formData = new FormData();
-      formData.append("text", text);
-      formData.append("language", voiceConfig.language);
-      formData.append("voice", voiceConfig.voiceId);
-      formData.append("format", "mp3");
-
-      // Make request to DSN TTS API with form-data
-      const response = await axios({
-        method: "POST",
-        url: `${config.dsn.baseUrl}/api/v1/ai/spitch/text-to-speech`,
-        data: formData,
-        headers: {
-          ...formData.getHeaders(),
-          Authorization: `Bearer ${token}`,
-        },
-        responseType: "arraybuffer",
-        timeout: 30000,
-      });
-
-      if (response) {
-        // Avoid stringifying the full response (contains circular refs). Log a safe summary instead.
-        try {
-          const safeSummary = {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers,
-            dataLength: response.data
-              ? response.data.length || Buffer.byteLength(response.data || "")
-              : 0,
-          };
-          logger.warn(`🔍 DSN TTS Response: ${JSON.stringify(safeSummary)}`);
-        } catch (logError) {
-          // Fallback - still avoid logging circular structures
-          logger.warn(
-            "🔍 DSN TTS Response received (unable to serialize details)"
-          );
-        }
+      // Make request using DSNService
+      const buffer = await dsnService.makeDSNRequest(text, voiceConfig);
+      if (!buffer) {
+        logger.warn("DSN service failed to generate audio");
+        return null;
       }
 
-      const buffer = Buffer.from(response.data); // DEBUG: Log the first 4 bytes to check for magic numbers
+      // DEBUG: Log the first 4 bytes to check for magic numbers
 
       if (buffer && buffer.length > 4) {
         const magicBytes = buffer.toString("hex", 0, 4);

@@ -235,7 +235,6 @@ ${welcomeXML}
     const audioUrl = staticAudioService.getStaticAudioUrl('en', 'welcome');
 
     if (audioUrl) {
-      logger.info(`📢 Welcome audio URL (static): ${stripQueryParams(audioUrl)}`);
       return `    <Play url="${stripQueryParams(audioUrl)}"/>`;
     }
 
