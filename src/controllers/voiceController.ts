@@ -649,10 +649,12 @@ class VoiceController {
         sessionLanguage
       );
 
-      // Play processing message and analysis wait, then immediately check AI status
+      // Extended processing message to cover longer AI processing time (12+ seconds)
       const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${processingAudio}
+  ${analysisWaitAudio}
+  ${analysisWaitAudio}
   ${analysisWaitAudio}
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
@@ -1336,21 +1338,23 @@ class VoiceController {
       
       let redirectXML: string;
       
-      if (elapsedSeconds >= 6 && !waitMessagePlayed) {
-        // After 6 seconds, play wait message once
+      if (elapsedSeconds >= 10 && !waitMessagePlayed) {
+        // After 10 seconds, play extended wait message
         const waitAudio = await this.generateStaticAudioSay("wait", lang);
+        const analysisWaitAudio = await this.generateStaticAudioSay("analysisWait", lang);
         sessionManager.updateSessionContext(sessionId, { waitMessagePlayed: true });
         redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${waitAudio}
-  <Pause length="2"/>
+  ${analysisWaitAudio}
+  <Pause length="4"/>
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
       } else {
-        // Silent check every 2 seconds
+        // Silent check every 4 seconds
         redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Pause length="2"/>
+  <Pause length="4"/>
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;
       }
