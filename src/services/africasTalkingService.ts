@@ -325,7 +325,7 @@ ${welcomeXML}
   /**
    * Generate TTS audio for text in specified language
    */
-  async   generateTTSAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig', phoneNumber: string = 'unknown'): Promise<string | null> {
+  async   generateTTSAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig', phoneNumber: string = 'unknown', sessionId?: string): Promise<string | null> {
     try {
       // Check if we should use Say only for testing
       if (config.testing.useSayOnly) {
@@ -336,12 +336,13 @@ ${welcomeXML}
       // Force English only if testing flag is set
       const actualLanguage = config.testing.forceEnglishOnly ? 'en' : language;
 
-      const result = await ttsService.generateAIAudio(text, actualLanguage, phoneNumber);
+      const result = await ttsService.generateAIAudio(text, actualLanguage, phoneNumber, sessionId);
       // TTS succeeded, mark as available
       this.ttsAvailable = true;
       return result;
     } catch (error) {
-      logger.error(`Failed to generate TTS for language ${language}:`, error);
+      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
+      logger.error(`TTS${sessionInfo} failed for ${language}:`, error);
       // TTS failed, mark as unavailable
       this.ttsAvailable = false;
       return null; // Fallback to Say tag

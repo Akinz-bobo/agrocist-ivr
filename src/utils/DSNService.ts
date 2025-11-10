@@ -8,7 +8,7 @@ class DSNService {
   private tokenExpiry: Date | null = null;
   private authPromise: Promise<string | null> | null = null;
 
-  async makeDSNRequest(text: string, voiceConfig: {voiceId: string, language: string}): Promise<Buffer | null> {
+  async makeDSNRequest(text: string, voiceConfig: {voiceId: string, language: string}, sessionId?: string): Promise<Buffer | null> {
     try {
       const token = await this.authenticateDSN();
       if (!token) {
@@ -36,10 +36,12 @@ class DSNService {
       });
 
       const requestTime = Date.now() - startTime;
-      logger.info(`DSN TTS success: ${response.data.byteLength} bytes in ${requestTime}ms`);
+      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
+      logger.info(`DSN TTS${sessionInfo}: ${response.data.byteLength} bytes in ${requestTime}ms`);
       return Buffer.from(response.data);
     } catch (error) {
-      logger.error('DSN TTS request failed:', error);
+      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
+      logger.error(`DSN TTS${sessionInfo} failed:`, error);
       return null;
     }
   }

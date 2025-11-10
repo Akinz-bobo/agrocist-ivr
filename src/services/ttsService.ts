@@ -22,6 +22,7 @@ class TTSService {
     text: string,
     language: "en" | "yo" | "ha" | "ig",
     phoneNumber: string,
+    sessionId?: string
   ): Promise<string> {
     try {
        const voiceConfig = this.voiceConfigs[language];
@@ -30,13 +31,13 @@ class TTSService {
 
       if (voiceConfig.language ==='en') {
         provider = 'ElevenLabs';
-        buffer = await elevenLabsService.generateAudio(text, language);
+        buffer = await elevenLabsService.generateAudio(text, language, sessionId);
       } else {
         provider = 'DSN';
         if (!voiceConfig) {
           throw new Error(`No voice configuration found for language: ${language}`);
         }
-        buffer = await dsnService.makeDSNRequest(text, voiceConfig);
+        buffer = await dsnService.makeDSNRequest(text, voiceConfig, sessionId);
       }
 
       if (!buffer) {
@@ -57,7 +58,8 @@ class TTSService {
         );
 
         if (cloudinaryResult) {
-          logger.info(`✅ Uploaded fresh AI audio to Cloudinary: ${cloudinaryResult.secureUrl}`);
+          const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
+          logger.info(`✅ AI audio${sessionInfo} uploaded: ${cloudinaryResult.secureUrl}`);
           return cloudinaryResult.secureUrl;
         } else {
           logger.warn("Audio upload failed, falling back to data URL");
@@ -70,7 +72,8 @@ class TTSService {
       logger.info(`Generated data URL for AI audio (${buffer.length} bytes)`);
       return dataUrl;
     } catch (error: any) {
-      logger.error(`TTS generation failed for ${language}: ${error.message}`);
+      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
+      logger.error(`TTS${sessionInfo} failed for ${language}: ${error.message}`);
       throw new Error(`AI audio generation failed: ${error.message || "Unknown error"}`);
     }
   }

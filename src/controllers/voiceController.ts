@@ -897,24 +897,23 @@ class VoiceController {
   private async generateLanguageSpecificSay(
     text: string,
     language: "en" | "yo" | "ha" | "ig",
-    phoneNumber?: string
+    phoneNumber?: string,
+    sessionId?: string
   ): Promise<string> {
     try {
       // This is for dynamic AI responses only - static messages use staticAudioService directly
       const audioUrl = await africasTalkingService.generateTTSAudio(
         text,
         language,
-        phoneNumber || 'unknown'
+        phoneNumber || 'unknown',
+        sessionId
       );
       if (audioUrl) {
         return `<Play url="${audioUrl}"/>`;
       }
     } catch (error) {
-      logger.error(
-        `Failed to generate TTS for language ${language}:`,
-        error
-      );
-      // Don't just warn - this is important for debugging
+      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
+      logger.error(`TTS${sessionInfo} failed for ${language}:`, error);
       throw error;
     }
 
@@ -1115,8 +1114,8 @@ class VoiceController {
           ttsGenerating: false,
           ttsGenerationFailed: true,
         });
-        logger.error(`TTS timeout after 12s for ${sessionId}`);
-      }, 12000);
+        logger.error(`TTS timeout after 20s for ${sessionId}`);
+      }, 20000);
       
       this.generateLanguageSpecificSay(truncatedResponse, language, callerNumber)
         .then((audioTag) => {
@@ -1239,8 +1238,8 @@ class VoiceController {
         } else if (session.context.ttsGenerating) {
           // Wait for ongoing background generation
 
-          // Poll for completion (max 12 seconds - reduced timeout)
-          const maxWaitTime = 12000;
+          // Poll for completion (max 20 seconds)
+          const maxWaitTime = 20000;
           const pollInterval = 500;
           const startWait = Date.now();
 
@@ -1265,7 +1264,8 @@ class VoiceController {
             audioTag = await this.generateLanguageSpecificSay(
               aiResponse,
               language,
-              session.callerNumber
+              session.callerNumber,
+              sessionId
             );
           }
         } else {
@@ -1274,19 +1274,13 @@ class VoiceController {
             `🎵 Generating AI response audio on-demand (no background generation) for ${sessionId}...`
           );
           
-          // Add timeout for on-demand generation too
-          const onDemandPromise = this.generateLanguageSpecificSay(
-            aiResponse,
-            language,
-            session.callerNumber
-          );
-          
-          const timeoutPromise = new Promise<string>((_, reject) => {
-            setTimeout(() => reject(new Error('On-demand TTS timeout')), 10000);
-          });
-          
+          // Generate on-demand with longer timeout
           try {
-            audioTag = await Promise.race([onDemandPromise, timeoutPromise]);
+            audioTag = await this.generateLanguageSpecificSay(
+              aiResponse,
+              language,
+              session.callerNumber
+            );
             const ttsTime = Date.now() - ttsStartTime;
             logger.info(`⚡ TTS generated (${ttsTime}ms): ${sessionId}`);
           } catch (error) {

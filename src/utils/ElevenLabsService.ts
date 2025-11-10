@@ -10,7 +10,7 @@ class ElevenLabsService {
     });
   }
 
-  async generateAudio(text: string, language: "en" | "yo" | "ha" | "ig"): Promise<Buffer | null> {
+  async generateAudio(text: string, language: "en" | "yo" | "ha" | "ig", sessionId?: string): Promise<Buffer | null> {
     try {
       const voiceConfigs = {
         en: process.env.ELEVENLABS_VOICE_ID_EN || "21m00Tcm4TlvDq8ikWAM",
@@ -35,10 +35,12 @@ class ElevenLabsService {
       const buffer = Buffer.concat(chunks);
 
       const requestTime = Date.now() - startTime;
-      logger.info(`ElevenLabs TTS success: ${buffer.length} bytes in ${requestTime}ms`);
+      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
+      logger.info(`ElevenLabs TTS${sessionInfo}: ${buffer.length} bytes in ${requestTime}ms`);
       return buffer;
     } catch (error: any) {
-      logger.error('ElevenLabs TTS request failed:', error.message);
+      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
+      logger.error(`ElevenLabs TTS${sessionInfo} failed:`, error.message);
       return null;
     }
   }
