@@ -872,7 +872,7 @@ class VoiceController {
   /**
    * Truncate AI response to prevent large audio files that cause AT timeouts
    */
-  private truncateForAudio(text: string, maxLength: number = 500): string {
+  private truncateForAudio(text: string, maxLength: number = 1000): string {
     if (text.length <= maxLength) {
       return text;
     }

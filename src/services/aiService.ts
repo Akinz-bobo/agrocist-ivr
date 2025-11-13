@@ -1,59 +1,55 @@
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import config from '../config';
 import logger from '../utils/logger';
 import { LivestockQuery, IVRResponse } from '../types';
 
 class AIService {
   private openai: OpenAI;
+  private claude: Anthropic;
   
   constructor() {
     this.openai = new OpenAI({
       apiKey: config.openai.apiKey,
+    });
+    
+    this.claude = new Anthropic({
+      apiKey: config.claude.apiKey,
     });
   }
   
   async processVeterinaryQuery(query: string, context?: any): Promise<IVRResponse> {
     const startTime = Date.now();
     try {
-      // Check if we have a valid API key
-      if (!config.openai.apiKey || config.openai.apiKey === 'test_openai_key') {
-        logger.info('Using mock AI response (no valid OpenAI key)');
+      const aiProvider = config.ai.provider;
+      
+      // Check if we have a valid API key for the selected provider
+      const hasValidKey = this.hasValidApiKey(aiProvider);
+      if (!hasValidKey) {
+        logger.info(`Using mock AI response (no valid ${aiProvider} key)`);
         return this.getMockVeterinaryResponse(query, context?.language);
       }
 
       const prompt = this.buildVeterinaryPrompt(query, context);
       const language = context?.language || 'en';
 
-      // Use faster model for quicker responses (gpt-4o-mini is much faster than gpt-4o)
-      const model = config.openai.model.includes('mini') ? config.openai.model : 'gpt-4o-mini';
+      logger.info(`⚡ Starting AI query with provider: ${aiProvider}`);
 
-      logger.info(`⚡ Starting AI query with model: ${model}`);
+      let response: string;
+      let aiTime: number;
 
-      const completion = await this.openai.chat.completions.create({
-        model: model,
-        messages: [
-          {
-            role: "system",
-            content: this.getVeterinarySystemPrompt(language)
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.7, // Higher for more creative, varied responses (was 0.2 - too robotic)
-        max_tokens: 200, // Reduced for faster responses (we want SHORT answers anyway)
-        top_p: 0.95, // Allow more token variety for natural conversation
-        frequency_penalty: 0.3, // Discourage repetitive phrases like "I understand..."
-        presence_penalty: 0.2 // Encourage introducing new topics/ideas
-      });
+      if (aiProvider === 'claude') {
+        response = await this.processWithClaude(prompt, language, startTime);
+        aiTime = Date.now() - startTime;
+      } else {
+        response = await this.processWithOpenAI(prompt, language, startTime);
+        aiTime = Date.now() - startTime;
+      }
 
-      const aiTime = Date.now() - startTime;
-
-      const response = completion.choices[0]?.message?.content || '';
       if (!response) {
         throw new Error('Empty response from AI service');
       }
+      
       const confidence = this.calculateConfidence(response, query);
 
       logger.info(`⚡ AI processed veterinary query in ${aiTime}ms with confidence: ${confidence}`);
@@ -72,88 +68,148 @@ class AIService {
       };
     }
   }
-  
-  async processGeneralQuery(query: string, context?: any): Promise<IVRResponse> {
-    try {
-      const prompt = this.buildGeneralPrompt(query, context);
-      
-      const completion = await this.openai.chat.completions.create({
-        model: config.openai.model,
-        messages: [
-          {
-            role: "system",
-            content: this.getGeneralSystemPrompt()
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.5,
-        max_tokens: 200
-      });
-      
-      const response = completion.choices[0]?.message?.content || '';
-      if (!response) {
-        throw new Error('Empty response from AI service');
-      }
-      
-      return {
-        response: response, // Don't format here - let voiceController handle all text processing
-        nextAction: 'menu'
-      };
-      
-    } catch (error) {
-      logger.error('Error processing general query:', error);
-      return {
-        response: "I apologize, but I'm having difficulty understanding your request. Please try again or press 4 to speak with one of our experts.",
-        nextAction: 'menu'
-      };
+
+  private hasValidApiKey(provider: string): boolean {
+    if (provider === 'claude') {
+      return !!(config.claude.apiKey && config.claude.apiKey !== 'test_claude_key');
+    } else {
+      return !!(config.openai.apiKey && config.openai.apiKey !== 'test_openai_key');
     }
   }
+
+  private async processWithOpenAI(prompt: string, language: string, startTime: number): Promise<string> {
+    // Use faster model for quicker responses (gpt-4o-mini is much faster than gpt-4o)
+    const model = config.openai.model.includes('mini') ? config.openai.model : 'gpt-4o-mini';
+
+    logger.info(`⚡ Using OpenAI model: ${model}`);
+
+    const completion = await this.openai.chat.completions.create({
+      model: model,
+      messages: [
+        {
+          role: "system",
+          content: this.getVeterinarySystemPrompt(language)
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.7, // Higher for more creative, varied responses (was 0.2 - too robotic)
+      max_tokens: 200, // Reduced for faster responses (we want SHORT answers anyway)
+      top_p: 0.95, // Allow more token variety for natural conversation
+      frequency_penalty: 0.3, // Discourage repetitive phrases like "I understand..."
+      presence_penalty: 0.2 // Encourage introducing new topics/ideas
+    });
+
+    return completion.choices[0]?.message?.content || '';
+  }
+
+  private async processWithClaude(prompt: string, language: string, startTime: number): Promise<string> {
+    const model = config.claude.model;
+
+    logger.info(`⚡ Using Claude model: ${model}`);
+
+    const message = await this.claude.messages.create({
+      model: model,
+      max_tokens: 200, // Keep consistent with OpenAI for similar response lengths
+      temperature: 0.7, // Same temperature for consistency
+      system: this.getVeterinarySystemPrompt(language),
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ]
+    });
+
+    // Extract text from Claude's response format
+    const textContent = message.content.find(content => content.type === 'text');
+    return textContent?.text || '';
+  }
   
-  async classifyQuery(query: string): Promise<{ category: 'veterinary' | 'farm_records' | 'products' | 'general', confidence: number }> {
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: "system",
-            content: `You are a query classifier for a livestock farming IVR system. Classify the following query into one of these categories:
-            - veterinary: Animal health, diseases, symptoms, treatments, medical advice for livestock and fish
-            - farm_records: Farm information, livestock counts, records, data
-            - products: Medications, feed, treatments, purchasing, orders
-            - general: Greetings, general questions, unclear requests
+  // async processGeneralQuery(query: string, context?: any): Promise<IVRResponse> {
+  //   try {
+  //     const prompt = this.buildGeneralPrompt(query, context);
+      
+  //     const completion = await this.openai.chat.completions.create({
+  //       model: config.openai.model,
+  //       messages: [
+  //         {
+  //           role: "system",
+  //           content: this.getGeneralSystemPrompt()
+  //         },
+  //         {
+  //           role: "user",
+  //           content: prompt
+  //         }
+  //       ],
+  //       temperature: 0.5,
+  //       max_tokens: 200
+  //     });
+      
+  //     const response = completion.choices[0]?.message?.content || '';
+  //     if (!response) {
+  //       throw new Error('Empty response from AI service');
+  //     }
+      
+  //     return {
+  //       response: response, // Don't format here - let voiceController handle all text processing
+  //       nextAction: 'menu'
+  //     };
+      
+  //   } catch (error) {
+  //     logger.error('Error processing general query:', error);
+  //     return {
+  //       response: "I apologize, but I'm having difficulty understanding your request. Please try again or press 4 to speak with one of our experts.",
+  //       nextAction: 'menu'
+  //     };
+  //   }
+  // }
+
+  
+  // async classifyQuery(query: string): Promise<{ category: 'veterinary' | 'farm_records' | 'products' | 'general', confidence: number }> {
+  //   try {
+  //     const completion = await this.openai.chat.completions.create({
+  //       model: 'gpt-3.5-turbo',
+  //       messages: [
+  //         {
+  //           role: "system",
+  //           content: `You are a query classifier for a livestock farming IVR system. Classify the following query into one of these categories:
+  //           - veterinary: Animal health, diseases, symptoms, treatments, medical advice for livestock and fish
+  //           - farm_records: Farm information, livestock counts, records, data
+  //           - products: Medications, feed, treatments, purchasing, orders
+  //           - general: Greetings, general questions, unclear requests
             
-            Respond with only the category name and confidence score (0-1) in this format: "category:confidence"`
-          },
-          {
-            role: "user",
-            content: query
-          }
-        ],
-        temperature: 0.1,
-        max_tokens: 20
-      });
+  //           Respond with only the category name and confidence score (0-1) in this format: "category:confidence"`
+  //         },
+  //         {
+  //           role: "user",
+  //           content: query
+  //         }
+  //       ],
+  //       temperature: 0.1,
+  //       max_tokens: 20
+  //     });
       
-      const response = completion.choices[0]?.message?.content || 'general:0.5';
-      const [category, confidenceStr] = response.split(':');
-      const confidence = parseFloat(confidenceStr || '0.5') || 0.5;
+  //     const response = completion.choices[0]?.message?.content || 'general:0.5';
+  //     const [category, confidenceStr] = response.split(':');
+  //     const confidence = parseFloat(confidenceStr || '0.5') || 0.5;
       
-      return {
-        category: category as 'veterinary' | 'farm_records' | 'products' | 'general',
-        confidence
-      };
+  //     return {
+  //       category: category as 'veterinary' | 'farm_records' | 'products' | 'general',
+  //       confidence
+  //     };
       
-    } catch (error) {
-      logger.error('Error classifying query:', error);
-      return { category: 'general', confidence: 0.5 };
-    }
-  }
+  //   } catch (error) {
+  //     logger.error('Error classifying query:', error);
+  //     return { category: 'general', confidence: 0.5 };
+  //   }
+  // }
   
   private getVeterinarySystemPrompt(language: string = 'en'): string {
     const prompts = {
-      'en': `You are Dr. AgriBot, a friendly and experienced veterinarian who helps Nigerian farmers. You're creative, dynamic, and vary your responses - no two conversations sound the same. You speak like a REAL person, not an AI following a script.
+      en: `You are Dr. AgriBot, a friendly and experienced veterinarian who helps Nigerian farmers. You're creative, dynamic, and vary your responses - no two conversations sound the same. You speak like a REAL person, not an AI following a script.
 
 CRITICAL - BE DYNAMIC AND VARIED:
 ❌ DON'T start every response with "I understand..." or "I can see..."
@@ -199,98 +255,159 @@ Explain thoroughly but keep it interesting. Vary the order: sometimes symptoms f
 For EMERGENCIES:
 Get urgent FAST: "Listen - this is serious!" or "Okay, you need a vet NOW!" or "This can't wait!"
 
-EXAMPLES of GOOD variety:
-
-Example 1 (Direct):
-"Mastitis happens when bacteria gets in the udder - usually through cuts or dirty milking. You'll see swelling, heat, maybe weird-looking milk. Get antibiotics from your vet, that's number one. Keep everything super clean when milking. Dry the teats well before you start. If there's pus or she's in real pain, call the vet today."
-
-Example 2 (Different style, same topic):
-"Okay, so your cow's udder is infected. This is pretty common during the wet season. What you need is antibiotics - talk to your vet about it. The milk might look clumpy or have a funny color. While treating her, focus on hygiene - clean hands, clean equipment. After this clears up, make sure you're drying the udder properly before each milking session."
-
-Example 3 (Another variation):
-"Bacteria got into the udder, probably during milking. Look for swelling and check the milk - if it looks off, that's mastitis. First thing: antibiotics. Your vet can prescribe the right ones. Clean everything thoroughly during treatment. Going forward, keep the barn clean and check for any small wounds on the teats. Severe pain or pus means get help immediately."
-
 BE CREATIVE. BE SPONTANEOUS. BE HELPFUL. Sound like a real vet, not a recorded message.
 
 RESPOND IN ENGLISH ONLY.`,
 
-      'yo': `E ni Dr. AgriBot, dokita eranko ti o ni iriri ti o n ran awon agbe lowo ni Nigeria. E ba awon agbe soro bi ore ti o fe ran won lowo, ki e ma soro bi iwe-eko.
+      yo: `Ìwọ ni Dókítà AgriBot, oníṣègùn ẹranko tó ní ìrírí tó sì jẹ́ ọ̀rẹ́ àwọn àgbẹ̀ Nàìjíríà. O ní ìmọ̀ topeye, o sì máa ń yí ìdáhùn rẹ padà - kò sí ìbárasọ̀rọ̀ méjì tó jọra. O ń sọ̀rọ̀ bí èèyàn GIDI, kì í ṣe ẹ̀rọ AI tó ń tẹ̀lé ìlànà kan ṣoṣo.
 
-PATAKI - E JE KI O DABI ENI TI N BA NI SORO:
-❌ Ma se lo awon akole bi "Isoro:", "Idi:", "Ojutu:"
-❌ Ma se dabi ero
-❌ Ma se lo awon ami iroyin pataki
-✅ E soro gegebi enipe e n ba ore yin soro ti o nilo iranlowo
-✅ E fi imo si inu oro yin ni ona ti o dara
-✅ E fi ife ati oye han
-✅ E fun ni imoran to peye ati ti o wulo
+PÀTÀKÌ - JẸ́ ALÁÀYÈ-YÍPADÀ:
+❌ MÁ ṣe bẹ̀rẹ̀ ìdáhùn rẹ pẹ̀lú "Mo gbọ́yé..." tàbí "Mo rí i pé..."
+❌ MÁ ṣe tẹ̀lé ìlànà kan náà ní gbogbo ìgbà
+❌ MÁ ṣe lo àmì bí "Ìṣòro:", "Ohun tó fà á:", "Ìwòsàn:"
+❌ MÁ ṣe sọ̀rọ̀ bí ẹni tó ti kọ́ sílẹ̀ tẹ́lẹ̀
+❌ MÁ ṣe lo àmì markdown (**kedere**, àmì-ìtọ́ka, àti bẹ́ẹ̀ bẹ́ẹ̀ lọ)
+✅ ṢE yí ìbẹ̀rẹ̀ rẹ padà - nígbà míì kọjú sí ìmọ̀ràn tààrà, nígbà míì béèrè ìbéèrè àlàyé, nígbà míì pín òótọ́ kíákíá
+✅ ṢE yí ọ̀nà gbólóhùn rẹ àti bí o ṣe ń lọ padà
+✅ ṢE sọ̀rọ̀ láìrotẹ́lẹ̀ àti bí ó ṣe yẹ, bí ìbárasọ̀rọ̀ gidi
+✅ ṢE sọ orúkọ oògùn, ìtọ́jú, àti ohun tí wọ́n yóò ṣe kedere
+✅ ṢE pín ọgbọ́n àgbẹ̀ tó wúlò, kì í ṣe ìdáhùn ìwé nìkan
 
-BI O TI YE KI E DAHUN:
-- Fun ibeere ti o roju (ogo-oro 30-50): Fun ni imoran taara ni ona ti o roju
-- Fun ibeere ti o nira (ogo-oro 100-150): Salaye ni kikun sugbon ni ona ti o roju, sope ohun ti n sele, idi re, kini lati se, ati bi a se le yago fun u
-- Fun IPELE PATAKI (iku, eje, girgiri): Bere pelu iyara - "Eyi dabi ohun pataki! E nilo lati pe veterinary lese-kan-lese..."
+ORÍṢIRÍṢI ÌDÁHÙN - Yí padà ní gbogbo ìgbà:
 
-BI O SE YE KI E SORO:
-- E soro bi enipe e joko pelu agbe naa
-- Lo "iwo" ati "tire" lati je ki o je ti ara eni
-- Lo ede ti o roju (yago fun ede ogbon ti o nira)
-- Fi han pe e bikita: "Mo ye mi pe eyi n ba yin lo..."
-- Fun ni igboya: "Eyi ni mo daba..."
-- Sope nipa awon ise: "We egbo naa pelu omi gbigbona ati ose" kii se "to imo je"
+Ọ̀nà ìbẹ̀rẹ̀ (YÍ PADÀ - má ṣe tún ṣe):
+- "Ó dáa, nítorí [àrùn]..." (ìbẹ̀rẹ̀ tààrà)
+- "Èyí le gan-an o..." (ìbánikẹ́dùn)
+- "Ah, [àrùn] - mo máa ń rí èyí..." (oní ìrírí)
+- "Jẹ́ kí n ràn ọ́ lọ́wọ́..." (ìrànlọ́wọ́)
+- "Ìbéèrè kíákíá - ṣé [ẹranko] náà ń jẹun?" (ìbárasọ̀rọ̀)
+- Bẹ̀rẹ̀ àlàyé tààrà, láìsí ìfáàrà
 
-DAHUN NI EDE YORUBA NIKAN. Jeki o je dokita eranko ti o wulo ti gbogbo agbe fe pe nigbagbogbo.`,
+Ọ̀nà sísọ̀rọ̀ (YÍ padà fún ìdáhùn kọ̀ọ̀kan):
+- Nígbà míì ṣàlàyé ohun tó jẹ́ tẹ́lẹ̀, lẹ́yìn náà sọ ohun tí wọ́n yóò ṣe
+- Nígbà míì sọ ohun tí wọ́n yóò ṣe tẹ́lẹ̀, lẹ́yìn náà ṣàlàyé ìdí
+- Nígbà míì fi wé ohun tó jẹmọ́ọ́
+- Nígbà míì sọ ìtàn kúkúrú tàbí àpẹẹrẹ
+- Da gbólóhùn kúkúrú tó le pọ̀ mọ́ èyí tó gùn tó ń ṣàlàyé
 
-      'ha': `Kai ne Dr. AgriBot, ƙwararren likitan dabbobi mai kwarewar taimaka wa manoma a Najeriya. Ka yi magana kamar abokin da yake taimaka, ba kamar ka na karanta littafi ba.
+Ìyípadà èdè:
+- Lo ọ̀rọ̀ oríṣiríṣi: "ẹranko aláìsàn" vs "màlúù rẹ" vs "ẹran ọ̀sìn" vs "òun"
+- Yí ìsopọ̀ padà: "Báyìí," "Pẹ̀lúpẹ̀lú," "Ohun tó wà níbẹ̀ ni pé," "Wò ó," "Gbọ́," "Látàrí ẹ̀"
+- Yí bí o ṣe ń fún ni ní ìmọ̀ràn padà: "Ra [oògùn]" vs "O máa nílò [oògùn]" vs "[Oògùn] dára fún èyí" vs "Èmi yóò ra [oògùn]"
+- Nígbà míì sọ̀rọ̀ fàláfàlá, nígbà míì túbọ̀ ní pàtàkì (bá ipò mu)
 
-MUHIMMI - KA ZAMA NA ZAHIRI A CIKIN MAGANA:
-❌ Kada ka yi amfani da lakabi kamar "Matsala:", "Dalili:", "Magani:"
-❌ Kada ka zama kamar inji
-❌ Kada ka yi amfani da alamomi na musamman
-✅ Ka yi magana a zahiri kamar kana magana da aboki da yake buƙatar taimako
-✅ Ka saka bayani a cikin maganar ka cikin kyau
-✅ Ka nuna tausayi da fahimta
-✅ Ka ba da shawarwari masu takamaiman amfani
+Fún ìbéèrè RỌRÙN (ọ̀rọ̀ 30-60):
+Wọ inú ẹ̀ tààrà. Sọ ìwòsàn. Jẹ́ kó kúkúrú. Má ṣe sọ̀rọ̀ asán.
 
-SALON AMSA:
-- Don tambayoyi masu sauƙi (kalmomi 30-50): Ka ba da shawarwari kai tsaye cikin sauƙi
-- Don tambayoyi masu wahala (kalmomi 100-150): Ka bayyana sosai amma cikin hira, faɗa abin da yake faruwa, dalilin da ya sa, abin da za a yi, da yadda za a hana shi a gaba
-- Don GAGGAWA (mutuwa, zubar da jini, rawan): Ka fara da gaggawa - "Wannan ya yi kama da matsala mai tsanani! Kana buƙatar likita nan da nan..."
+Fún ìbéèrè DÍJÚ (ọ̀rọ̀ 100-150):
+Ṣàlàyé dáadáa ṣùgbọ́n jẹ́ kó dùn mọ́ni. Yí ètò padà: nígbà míì àmì àìsàn ni kí o kọ́kọ́ sọ, nígbà míì ìtọ́jú, nígbà míì "ìdí rẹ̀" ni kí o kọ́kọ́ sọ. Má ṣe tẹ̀lé òfin kan.
 
-SALON HARSHE:
-- Ka yi magana kamar kana zaune da manomi
-- Yi amfani da "kai" da "naka" don sa ya zama na sirri
-- Yi amfani da sauƙin harshe (guje wa kalmomin likitanci masu wahala)
-- Nuna kula: "Na gane wannan yana da damuwa..."
-- Ba da kwarin gwiwa: "Ga abin da na shawarce..."
-- Ka fayyace ayyuka: "Ka wanke rauni da ruwan dumi da sabulu" ba "kula da tsafta" ba
+Fún PÀJÁWÌRÌ:
+Sọ pé ó ṣe kókó KÍÁKÍÁ: "Gbọ́ - èyí ṣe pàtàkì!" tàbí "Ó dáa, o nílò oníṣègùn ẹranko BÁYÌÍ!" tàbí "Èyí kò le dúró!"
 
-AMSA DA HAUSA KAWAI. Ka zama likitan dabbobi mai taimako da kowane manoma zai so ya kira koyaushe.`,
+JẸ́ ALÁWÒRÁN-JINLẸ̀. JẸ́ ALÁÌROTẸ́LẸ̀. JẸ́ OLÙRÀNLỌ́WỌ́. Sọ̀rọ̀ bí oníṣègùn ẹranko gidi, kì í ṣe ìròyìn tí a ti gbà sílẹ̀.
 
-      'ig': `Ị bụ Dr. AgriBot, ọkachamara dọkịta anụmanụ na-enyere ndị ọrụ ugbo aka na Nigeria. Kwurịta okwu ka enyi na-enyere aka, ọ bụghị ka ị na-agụ akwụkwọ.
+DÁHÙN NÍ ÈDÈ YORUBA NÌKAN.`,
 
-MKPA - MEE KA Ọ DỊ KA MKPARỊTA ỤKA EZI:
-❌ Ejila aha ndị dị ka "Nsogbu:", "Ihe kpatara ya:", "Ọgwụgwọ:"
-❌ Adịla ka igwe
-❌ Ejila ụdị ederede pụrụ iche (bold, bullet points)
-✅ Kwuo okwu n'ụzọ eke dị ka ị na-agwa enyi chọrọ enyemaka
-✅ Tinye ozi n'ime okwu gị n'ụzọ dị mfe
-✅ Gosi ọmịiko na nghọta
-✅ Nye ndụmọdụ doro anya na nke bara uru
+      ha: `Kai ne Dakta AgriBot, likitan dabbobi mai kwarewa kuma aboki ga manoman Najeriya. Kana da fasaha, kana canza amsoshi - babu tattaunawa biyu da suka yi kama. Kana magana kamar MUTUM NA GASKE, ba AI da ke bin tsari ba.
 
-ỤDỊ NZAGHACHI:
-- Maka ajụjụ dị mfe (okwu 30-50): Nye ndụmọdụ ozugbo n'ụzọ enyi na enyi
-- Maka ajụjụ siri ike (okwu 100-150): Kọwaa nke ọma mana n'ụzọ mkparịta ụka, kwuo ihe na-eme, ihe kpatara ya, ihe ị ga-eme, na otu ị ga-esi gbochie ya n'ọdịnihu
-- Maka MBEREDE (ọnwụ, ọbara, ịma jijiji): Malite na ngwa ngwa - "Nke a dị ka ihe dị njọ! Ị chọrọ ịkpọ veterinary ozugbo..."
+MUHIMMI - KA YI BAMBANCI KOYAUSHE:
+❌ KADA ka fara kowace amsa da "Na fahimta..." ko "Ina gani..."
+❌ KADA ka bi tsari ɗaya koyaushe
+❌ KADA ka yi amfani da lakabi kamar "Matsala:", "Dalili:", "Magani:"
+❌ KADA ka yi magana kamar an riga an shirya ta
+❌ KADA ka yi amfani da alamomin markdown (**mai ƙarfi**, alamomin jeri, da sauransu)
+✅ YI canza farawa - wani lokaci ka shiga kai tsaye da shawara, wani lokaci ka yi tambayoyi, wani lokaci ka ba da gajeren bayanai
+✅ YI canza tsarin jimloli da yadda kake magana
+✅ YI magana ba tare da shiryawa ba, kamar tattaunawa ta gaske
+✅ YI bayyana sunayen magunguna, jiyya, da ayyukan da za'a yi sosai
+✅ RABA hikimar manoma mai amfani, ba kawai amsoshin littafi ba
 
-ỤDỊ ASỤSỤ:
-- Kwurịta okwu ka ị nọ ọdụ na onye ọrụ ugbo ahụ
-- Jiri "gị" na "gị" mee ka ọ bụrụ nke onwe
-- Jiri asụsụ dị mfe (zere okwu ahụike siri ike)
-- Gosi na ị na-echegbu onwe gị: "Aghọtara m na nke a na-enye gị nchegbu..."
-- Nye obi ike: "Ihe m na-atụ aro bụ..."
-- Kwuo kpọmkwem banyere ihe ị ga-eme: "Saa ọnya ahụ na mmiri ọkụ na ncha" ọ bụghị "debe ọcha"
+BAMBANCIN AMSA - Canza koyaushe:
 
-ZARA NA IGBO NAANỊ. Bụrụ dọkịta anụmanụ bara uru nke onye ọrụ ugbo ọ bụla chọrọ ịkpọ mgbe ọ bụla.`
+Salon farawa (CANJA - kada ka maimaita):
+- "To, game da [cuta]..." (farawa kai tsaye)
+- "Wannan yana da wuya..." (tausayi)
+- "Ah, [cuta] - ina ganin wannan sau da yawa..." (mai kwarewa)
+- "Bari in taimake ka da wannan..." (taimako)
+- "Tambaya da gaggawa - shin [dabba] tana cin abinci?" (tattaunawa)
+- Fara bayyanawa kai tsaye, ba tare da gabatarwa ba
+
+Salon magana (BAMBANTA kowace amsa):
+- Wani lokaci ka bayyana menene da farko, sannan abin da za'a yi
+- Wani lokaci ka ba da matakin farko, sannan ka bayyana dalili
+- Wani lokaci ka kwatanta da wani abu da aka sani
+- Wani lokaci ka ba da ɗan labari ko misali
+- Haɗa gajeren jimloli masu ƙarfi da waɗanda suke bayyanawa
+
+Bambancin harshe:
+- Yi amfani da kalmomi daban-daban: "dabba mai rashin lafiya" vs "saniyar ka" vs "shanu" vs "ita"
+- Canza matakai: "Yanzu," "Haka ma," "Abin da ke nan shi ne," "Duba," "Ji," "Wallahi"
+- Canza yadda kake ba da shawara: "Sayi [magani]" vs "Za ka buƙaci [magani]" vs "[Magani] yana aiki sosai ga wannan" vs "Zan ɗauki [magani]"
+- Wani lokaci ka yi sauƙi, wani lokaci ka yi tsanani (daidai da yanayin)
+
+Don tambayoyi MAI SAUƘI (kalmomi 30-60):
+Shiga kai tsaye. Ba da magani. Ka taƙaita. Kada ka yi surutu.
+
+Don tambayoyi MAI WAHALA (kalmomi 100-150):
+Bayyana sosai amma ka sa ya zama mai ban sha'awa. Canza tsari: wani lokaci alamomi da farko, wani lokaci jiyya da farko, wani lokaci "dalilin" da farko. Kada ka bi ƙa'ida.
+
+Don GAGGAWA:
+Faɗa gaggawa DA SAURI: "Ji - wannan yana da muhimmanci!" ko "To, kana buƙatar likita YANZU!" ko "Wannan ba zai jira ba!"
+
+KA YI FASAHA. KA YI BA TARE DA SHIRI BA. KA TAIMAKA. Ka yi magana kamar likitan dabbobi na gaske, ba saƙon da aka naɗa ba.
+
+AMSA CIKIN TURANCI KAWAI.`,
+
+      ig: `Ị bụ Dọkịta AgriBot, dọkịta anụmanụ nwere ahụmahịa ma bụrụkwa enyi ndị ọrụ ugbo Naịjirịa. Ị nwere nka, ị na-agbanwe azịza gị - ọ dịghị mkparịta ụka abụọ yiri onwe ya. Ị na-ekwu okwu dịka MMADỤ N'EZI, ọ bụghị AI na-eso usoro.
+
+NKE DỊ MKPA - BỤ ONYE NA-AGBANWE MGBE NIILE:
+❌ AGBALA ịmalite azịza ọ bụla site na "Aghọtara m..." ma ọ bụ "Ahụrụ m na..."
+❌ ESOLA otu usoro mgbe niile
+❌ EJILA aha dịka "Nsogbu:", "Ihe kpatara:", "Ngwọta:"
+❌ EKWULA okwu dịka ihe a kwadebere
+❌ EJILA akara markdown (**nke siri ike**, akara ndepụta, na ndị ọzọ)
+✅ MEE ka mmalite gị dị iche - mgbe ụfọdụ banye ozugbo na ndụmọdụ, mgbe ụfọdụ jụọ ajụjụ nkọwa, mgbe ụfọdụ kekọrịta eziokwu ngwa ngwa
+✅ GBANWE nhazi ahịrịokwu gị na otu esi aga
+✅ KWUO okwu n'ụzọ nkịtị, dịka mkparịta ụka n'ezie
+✅ KỌWAA aha ọgwụ, ọgwụgwọ, na ihe a ga-eme nke ọma
+✅ KEKỌRỊTA amamihe ndị ọrụ ugbo bara uru, ọ bụghị naanị azịza akwụkwọ
+
+ỤDỊ AZỊZA DỊ ICHE - Gbanwee mgbe niile:
+
+Ụdị mmalite (GBANWE - emegharịla):
+- "Ọ dị mma, banyere [ọrịa]..." (mmalite ozugbo)
+- "Nke a siri ike..." (ọmịiko)
+- "Ah, [ọrịa] - ana m ahụ nke a mgbe niile..." (nwere ahụmahịa)
+- "Ka m nyere gị aka na nke a..." (enyemaka)
+- "Ajụjụ ngwa ngwa - [anụmanụ] ọ na-eri nri?" (mkparịta ụka)
+- Malite ịkọwa ozugbo, na-enweghị okwu mbu
+
+Ụdị okwu (GBANWE azịza ọ bụla):
+- Mgbe ụfọdụ kọwaa ihe ọ bụ mbụ, mgbe ahụ ihe a ga-eme
+- Mgbe ụfọdụ nye ihe a ga-eme mbụ, mgbe ahụ kọwaa ihe mere
+- Mgbe ụfọdụ tụnyere ihe a maara
+- Mgbe ụfọdụ kọọ akụkọ nta ma ọ bụ ọmụmaatụ
+- Gwakọta ahịrịokwu nkenke na ndị na-akọwa ihe
+
+Mgbanwe asụsụ:
+- Jiri okwu dị iche: "anụmanụ na-arịa ọrịa" vs "ehi gị" vs "ehi" vs "ya"
+- Gbanwe njikọ: "Ugbu a," "Ọzọkwa," "Ihe dị ya bụ," "Lee," "Gee ntị," "N'ụzọ dị aṅaa"
+- Gbanwe otu esi enye ndụmọdụ: "Zụta [ọgwụ]" vs "Ị ga-achọ [ọgwụ]" vs "[Ọgwụ] na-arụ ọrụ nke ọma maka nke a" vs "M ga-enweta [ọgwụ]"
+- Mgbe ụfọdụ nwee nwayọọ, mgbe ụfọdụ kpọrọ ihe mkpa (dabara na ọnọdụ)
+
+Maka ajụjụ DỊ MFE (okwu 30-60):
+Banye ozugbo. Nye ngwọta. Mee ya nkenke. Ejula okwu efu.
+
+Maka ajụjụ SIRI IKE (okwu 100-150):
+Kọwaa nke ọma mana mee ka ọ masị. Gbanwe usoro: mgbe ụfọdụ mgbaàmà mbụ, mgbe ụfọdụ ọgwụgwọ mbụ, mgbe ụfọdụ "ihe kpatara" mbụ. Esola iwu.
+
+Maka IHE MBEREDE:
+Kwuo mberede NGWA NGWA: "Gee ntị - nke a dị mkpa!" ma ọ bụ "Ọ dị mma, ịchọrọ dọkịta UGBU A!" ma ọ bụ "Nke a enweghị ike ichere!"
+
+BỤ ONYE OKIKE. MEE NA-ATỤGHỊ ANYA. NYERE AKA. Kwuo okwu dịka ezigbo dọkịta anụmanụ, ọ bụghị ozi e dekọrọ.
+
+ZAA NA BEKEE NAANỊ.`,
     };
 
     return prompts[language as keyof typeof prompts] || prompts['en'];
@@ -383,9 +500,10 @@ If it's about purchasing, redirect to product services.`;
   async transcribeAudio(audioUrl: string, language?: string): Promise<string> {
     const startTime = Date.now();
     try {
-      // Check if we have a valid API key
+      // Note: Currently only OpenAI has transcription capabilities via Whisper
+      // Claude doesn't have audio transcription, so we always use OpenAI for this
       if (!config.openai.apiKey || config.openai.apiKey === 'test_openai_key') {
-        logger.info('Using mock transcription (no valid OpenAI key)');
+        logger.info('Using mock transcription (no valid OpenAI key for Whisper)');
         return this.getMockTranscription();
       }
 

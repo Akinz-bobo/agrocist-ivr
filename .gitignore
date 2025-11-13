@@ -9,3 +9,9 @@ logs/
 .DS_Store
 coverage/
 .nyc_output/
+
+# claude
+
+.claude/
+.claude/settings.local.json
+
