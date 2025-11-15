@@ -29,16 +29,16 @@ class TTSService {
       let buffer: Buffer | null = null;
       let provider: string = ''
 
-      if (voiceConfig.language ==='en') {
+      // if (voiceConfig.language ==='en') {
         provider = 'ElevenLabs';
         buffer = await elevenLabsService.generateAudio(text, language, sessionId);
-      } else {
-        provider = 'DSN';
-        if (!voiceConfig) {
-          throw new Error(`No voice configuration found for language: ${language}`);
-        }
-        buffer = await dsnService.makeDSNRequest(text, voiceConfig, sessionId);
-      }
+      // } else {
+      //   provider = 'DSN';
+      //   if (!voiceConfig) {
+      //     throw new Error(`No voice configuration found for language: ${language}`);
+      //   }
+      //   buffer = await dsnService.makeDSNRequest(text, voiceConfig, sessionId);
+      // }
 
       if (!buffer) {
         throw new Error(`Failed to generate audio from ${provider} service`);

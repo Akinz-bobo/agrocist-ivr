@@ -20,7 +20,7 @@ class DSNService {
       formData.append("text", text);
       formData.append("language", voiceConfig.language);
       formData.append("voice", voiceConfig.voiceId);
-      formData.append("format", "mp3");
+    
 
       const startTime = Date.now();
       const response = await axios({

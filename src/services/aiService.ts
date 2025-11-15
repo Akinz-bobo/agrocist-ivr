@@ -3,10 +3,14 @@ import Anthropic from '@anthropic-ai/sdk';
 import config from '../config';
 import logger from '../utils/logger';
 import { LivestockQuery, IVRResponse } from '../types';
+import {
+  ElevenLabsClient,
+} from "@elevenlabs/elevenlabs-js";
 
 class AIService {
   private openai: OpenAI;
   private claude: Anthropic;
+  private client: ElevenLabsClient;
   
   constructor() {
     this.openai = new OpenAI({
@@ -16,6 +20,10 @@ class AIService {
     this.claude = new Anthropic({
       apiKey: config.claude.apiKey,
     });
+
+    this.client = new ElevenLabsClient({
+          apiKey: process.env.ELEVENLABS_API_KEY,
+        });
   }
   
   async processVeterinaryQuery(query: string, context?: any): Promise<IVRResponse> {
@@ -27,7 +35,10 @@ class AIService {
       const hasValidKey = this.hasValidApiKey(aiProvider);
       if (!hasValidKey) {
         logger.info(`Using mock AI response (no valid ${aiProvider} key)`);
-        return this.getMockVeterinaryResponse(query, context?.language);
+        return {
+          response: "I'm sorry, I'm unable to process your request at the moment. Please try again later or press 4 to speak with one of our veterinary experts.",
+          nextAction: 'end'
+        };
       }
 
       const prompt = this.buildVeterinaryPrompt(query, context);
@@ -450,16 +461,6 @@ If it's about purchasing, redirect to product services.`;
     return prompt;
   }
   
-  private buildGeneralPrompt(query: string, context?: any): string {
-    let prompt = `Farmer's question: "${query}"`;
-    
-    if (context?.previousMenu) {
-      prompt += `\nPrevious menu: ${context.previousMenu}`;
-    }
-    
-    return prompt;
-  }
-  
   private calculateConfidence(response: string, query: string): number {
     // Simple confidence calculation based on response characteristics
     let confidence = 0.8;
@@ -484,18 +485,7 @@ If it's about purchasing, redirect to product services.`;
     
     return Math.max(0.1, Math.min(1.0, confidence));
   }
-  
-  private formatForAudio(text: string): string {
-    // Format text for better audio delivery
-    return text
-      .replace(/Dr\./g, 'Doctor')
-      .replace(/(\d+)mg/g, '$1 milligrams')
-      .replace(/(\d+)ml/g, '$1 milliliters')
-      .replace(/(\d+)kg/g, '$1 kilograms')
-      .replace(/(\d+)°C/g, '$1 degrees Celsius')
-      .replace(/\s+/g, ' ') // Just clean up spaces, let voiceController handle newlines
-      .trim();
-  }
+
   
   async transcribeAudio(audioUrl: string, language?: string): Promise<string> {
     const startTime = Date.now();
@@ -504,7 +494,7 @@ If it's about purchasing, redirect to product services.`;
       // Claude doesn't have audio transcription, so we always use OpenAI for this
       if (!config.openai.apiKey || config.openai.apiKey === 'test_openai_key') {
         logger.info('Using mock transcription (no valid OpenAI key for Whisper)');
-        return this.getMockTranscription();
+        return "I'm sorry, I couldn't understand the audio. Could you please repeat your question?";
       }
 
       // Download the audio file with timeout for speed
@@ -533,42 +523,50 @@ If it's about purchasing, redirect to product services.`;
 
       const transcribeStart = Date.now();
 
-      // Transcribe using OpenAI Whisper with farming context for better accuracy
-      const transcription = await this.openai.audio.transcriptions.create({
-        file: audioFile,
-        model: 'whisper-1',
-        language: language || 'en', // Always specify language for better accuracy with Nigerian accents
-        prompt: 'livestock, cattle, cow, chickens, poultry, fish, goats, sheep, pigs, mastitis, coccidiosis, disease, farming, veterinary, pond, feed, vaccine, dying, sick, treatment, medicine, Nigeria', // Farming vocabulary context
-        response_format: 'verbose_json', // Get detailed response with confidence scores
-        temperature: 0.0 // Lower temperature for faster, more deterministic results
-      });
+      // // Transcribe using OpenAI Whisper with farming context for better accuracy
+      // const transcription = await this.openai.audio.transcriptions.create({
+      //   file: audioFile,
+      //   model: 'whisper-1',
+      //   response_format: 'verbose_json', // Get detailed response with confidence scores
+      //   temperature: 0.3 // Lower temperature for faster, more deterministic results
+      // });
+
+       const transcription:any = await this.client.speechToText.convert({
+         file: audioBlob,
+         modelId: "scribe_v1", // Model to use
+         tagAudioEvents: true, // Tag audio events like laughter, applause, etc.
+         languageCode: language, // Language of the audio file. If set to null, the model will detect the language automatically.
+         diarize: true, // Whether to annotate who is speaking
+        
+       });
 
       const transcribeTime = Date.now() - transcribeStart;
       const totalTime = Date.now() - startTime;
-      const transcribedText = transcription.text || '';
+      const transcribedText = transcription.text || transcription.words?.text || '';
 
-      // Extract and log confidence score if available
-      const segments = (transcription as any).segments || [];
-      let avgConfidence: number | null = null;
+      // // Extract and log confidence score if available
+      // const segments = (transcription as any).segments || [];
+      // let avgConfidence: number | null = null;
 
-      if (segments.length > 0) {
-        // Calculate average confidence from all segments
-        const totalConfidence = segments.reduce((sum: number, seg: any) => {
-          // Use no_speech_prob to estimate confidence: higher no_speech_prob = lower confidence
-          const segmentConfidence = seg.no_speech_prob !== undefined ? (1 - seg.no_speech_prob) : 0.8;
-          return sum + segmentConfidence;
-        }, 0);
-        avgConfidence = totalConfidence / segments.length;
-      }
+      // if (segments.length > 0) {
+      //   // Calculate average confidence from all segments
+      //   const totalConfidence = segments.reduce((sum: number, seg: any) => {
+      //     // Use no_speech_prob to estimate confidence: higher no_speech_prob = lower confidence
+      //     const segmentConfidence = seg.no_speech_prob !== undefined ? (1 - seg.no_speech_prob) : 0.8;
+      //     return sum + segmentConfidence;
+      //   }, 0);
+      //   avgConfidence = totalConfidence / segments.length;
+      // }
 
-      logger.info(`⚡ Audio transcribed in ${transcribeTime}ms (total: ${totalTime}ms): "${transcribedText}"`);
+      logger.info(`⚡ Transcribed (${totalTime}ms): "${transcribedText}"`);
+      logger.info(`🎯 Transcription object:`, JSON.stringify(transcription, null, 2));
 
-      if (avgConfidence !== null) {
-        logger.info(`🎯 Transcription confidence: ${(avgConfidence * 100).toFixed(1)}%`);
-        if (avgConfidence < 0.7) {
-          logger.warn(`⚠️ LOW CONFIDENCE transcription - may be inaccurate. Consider asking user to repeat.`);
-        }
-      }
+      // if (avgConfidence !== null) {
+      //   logger.info(`🎯 Transcription confidence: ${(avgConfidence * 100).toFixed(1)}%`);
+      //   if (avgConfidence < 0.7) {
+      //     logger.warn(`⚠️ LOW CONFIDENCE transcription - may be inaccurate. Consider asking user to repeat.`);
+      //   }
+      // }
 
       return transcribedText;
 
@@ -576,53 +574,13 @@ If it's about purchasing, redirect to product services.`;
       const totalTime = Date.now() - startTime;
       logger.error(`Error transcribing audio after ${totalTime}ms:`, error);
       // Fallback to mock transcription
-      return this.getMockTranscription();
+      return "I'm sorry, I couldn't understand the audio. Could you please repeat your question?";
     }
   }
 
-  private getMockTranscription(): string {
-    const mockTranscriptions = [
-      "My cow has been coughing and has a runny nose for the past two days. What should I do?",
-      "I have a sick goat that is not eating and seems very weak. Please help me.",
-      "My chickens are laying fewer eggs and some look sick. What medicine should I give them?",
-      "One of my pigs has diarrhea and is not drinking water. I need urgent help.",
-      "My cattle are showing signs of fever and are not grazing properly."
-    ];
-    
-    const randomIndex = Math.floor(Math.random() * mockTranscriptions.length);
-    return mockTranscriptions[randomIndex] ?? "My livestock needs help with health issues.";
-  }
+  
 
-  private getMockVeterinaryResponse(query: string, language: string = 'en'): IVRResponse {
-    const mockResponses = {
-      'en': [
-        "This sounds like respiratory infection. Isolate the animal, provide clean water, and monitor temperature. If no improvement in 24 hours, consult a veterinarian",
-        "Likely nutritional deficiency or parasites. Give balanced feed, clean water, and deworm if not done recently. Provide electrolyte solution",
-        "Possible bacterial infection. Isolate in clean area, provide good nutrition and hydration. Consult veterinarian if symptoms persist",
-        "Could be feed quality issue. Check feed for mold, provide probiotics and fresh water. Monitor for 24 hours"
-      ],
-      'yo': [
-        "Eyi dabi aisan mi mi. Ya eranko naa si ibi to mo, fun ni omi mimọ, wo iwọn otutu rẹ. Ti ko ba dara ni wakati mejila, kan veterinary",
-        "O le jẹ aipe ounjẹ tabi kokoro. Fun ni ounjẹ ti o peye, omi mimọ, ti ko ba ti gba egbogi laipe. Fun ni omi electrolyte",
-        "O le jẹ aisan kokoro. Ya si ibi ti o mọ, fun ni ounjẹ to dara ati omi. Kan veterinary ti aisan ba tẹsiwaju",
-        "O le jẹ isoro ounjẹ. Wo ounjẹ fun efun, fun ni probiotic ati omi tuntun. Wo fun wakati mejila"
-      ],
-      'ha': [
-        "Wannan kamar cutar numfashi ne. Ka ware dabbar, ka ba da ruwa mai tsabta, ka lura da zafin jiki. In babu sauyi a sa'o'i 24, ka tuntuɓi likitan dabbobi",
-        "Mai yiyuwa rashin abinci mai gina jiki ko tsutsotsi ne. Ka ba da abinci mai daidaito, ruwa mai tsabta, ka ba da maganin tsutsotsi in ba a yi ba kwanan nan. Ka ba da maganin electrolyte",
-        "Mai yiwuwa cutar ƙwayoyin cuta ce. Ka ware a wuri mai tsabta, ka ba da abinci mai kyau da ruwa. Ka tuntuɓi likita in alamun suka ci gaba",
-        "Zai iya zama matsalar ingancin abinci. Ka duba abinci don yin fumfuna, ka ba da probiotics da ruwa sabo. Ka sa ido har sa'o'i 24"
-      ]
-    };
-    
-    const responses = mockResponses[language as keyof typeof mockResponses] || mockResponses['en'];
-    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-    
-    return {
-      response: randomResponse || 'Please consult with a veterinarian for proper diagnosis', // Don't format here
-      nextAction: 'menu'
-    };
-  }
+  
 }
 
 export default new AIService();

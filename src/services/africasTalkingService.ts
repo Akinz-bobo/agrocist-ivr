@@ -319,7 +319,11 @@ ${welcomeXML}
    * Check if TTS is currently available
    */
   isTTSAvailable(): boolean {
-    return this.ttsAvailable;
+    // Always return true unless explicitly disabled by config
+    if (config.testing.useSayOnly) {
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -337,14 +341,10 @@ ${welcomeXML}
       const actualLanguage = config.testing.forceEnglishOnly ? 'en' : language;
 
       const result = await ttsService.generateAIAudio(text, actualLanguage, phoneNumber, sessionId);
-      // TTS succeeded, mark as available
-      this.ttsAvailable = true;
       return result;
     } catch (error) {
       const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
       logger.error(`TTS${sessionInfo} failed for ${language}:`, error);
-      // TTS failed, mark as unavailable
-      this.ttsAvailable = false;
       return null; // Fallback to Say tag
     }
   }

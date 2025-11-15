@@ -602,10 +602,20 @@ class VoiceController {
         return;
       }
 
-      // Store recording URL for immediate processing
+      // Upload user recording to Cloudinary and store URLs for processing
+      const audioUploadService = (await import('../services/audioUploadService')).default;
+      let userRecordingUrl: string | undefined;
+      try {
+        userRecordingUrl = await audioUploadService.uploadUserRecording(recording, sessionId) || undefined;
+      } catch (error) {
+        logger.warn(`Failed to upload user recording for ${sessionId}:`, error);
+      }
+
+      // Store recording URLs for immediate processing
       sessionManager.updateSessionContext(sessionId, {
         recordingUrl: recording,
         recordingDuration: callRecordingDurationInSeconds,
+        userRecordingUrl: userRecordingUrl,
       });
 
       // Track recording state transition (buffered - no DB write)
@@ -982,32 +992,6 @@ class VoiceController {
   }
 
   /**
-   * Get no-recording error message in appropriate language
-   */
-  private getNoRecordingMessage(language: "en" | "yo" | "ha" | "ig"): string {
-    const messages = {
-      en: "I didn't hear your recording. Please try again and speak after the beep.",
-      yo: "Mi ò gbọ́ ìgbóhùn yín. Ẹ jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan si, kí ẹ sì sọ̀rọ̀ lẹ́yìn ìró àlámọ́.",
-      ha: "Ban ji rikodin ku ba. Don Allah ku sake gwadawa kuma ku yi magana bayan sautin.",
-      ig: "Anụghị m ndekọ gị. Biko gbalịa ọzọ ma kwuo okwu mgbe ụda ahụ gasịrị.",
-    };
-    return messages[language] || messages.en;
-  }
-
-  /**
-   * Get processing message in appropriate language
-   */
-  private getProcessingMessage(language: "en" | "yo" | "ha" | "ig"): string {
-    const messages = {
-      en: "Thank you for your question. Agrocist is analyzing your concern.",
-      yo: "A dúpẹ́ fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìṣòro yín.",
-      ha: "Na gode da tambayar ku. Agrocist yana nazarin damuwar ku.",
-      ig: "Daalụ maka ajụjụ gị. Agrocist na-enyocha nsogbu gị.",
-    };
-    return messages[language] || messages.en;
-  }
-
-  /**
    * Get goodbye message in appropriate language
    */
   private getGoodbyeMessage(language: "en" | "yo" | "ha" | "ig"): string {
@@ -1078,18 +1062,10 @@ class VoiceController {
         aiReady: true,
       });
 
-      // 6. Upload user recording to Cloudinary and track AI interaction
+      // 6. Track AI interaction (user recording already uploaded in handleRecording)
       const session = sessionManager.getSession(sessionId);
       const recordingDuration = session?.context?.recordingDuration || 0;
-      
-      // Upload user recording to Cloudinary in background
-      const audioUploadService = (await import('../services/audioUploadService')).default;
-      let userRecordingUrl: string | undefined;
-      try {
-        userRecordingUrl = await audioUploadService.uploadUserRecording(recordingUrl, sessionId) || undefined;
-      } catch (error) {
-        logger.warn(`Failed to upload user recording for ${sessionId}:`, error);
-      }
+      const userRecordingUrl = session?.context?.userRecordingUrl;
 
       sessionManager.bufferAIInteraction(
         sessionId,
@@ -1241,8 +1217,8 @@ class VoiceController {
           // Wait for ongoing background generation
 
           // Poll for completion (max 20 seconds)
-          const maxWaitTime = 20000;
-          const pollInterval = 500;
+          const maxWaitTime = 40000;
+          const pollInterval = 3000;
           const startWait = Date.now();
 
           while (
