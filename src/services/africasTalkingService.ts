@@ -19,15 +19,19 @@ class AfricasTalkingService {
     this.voice = this.client.VOICE;
   }
 
-  async generateResponse(text: string, language: 'en' | 'yo' | 'ha' | 'ig' = 'en', nextAction?: string): Promise<string> {
+  async generateResponse(
+    text: string,
+    language: "en" | "yo" | "ha" | "ig" = "en",
+    nextAction?: string
+  ): Promise<string> {
     let response = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>`;
 
     // Generate TTS audio for the main text using proper voice selection
     const audioUrl = await this.generateTTSAudio(text, language);
-    response += audioUrl ? 
-      `  <Play url="${stripQueryParams(audioUrl)}"/>` : 
-      `  <Say>${this.escapeXML(text)}</Say>`;
+    response += audioUrl
+      ? `  <Play url="${stripQueryParams(audioUrl)}"/>`
+      : `  <Say>${this.escapeXML(text)}</Say>`;
 
     switch (nextAction) {
       case "menu":
@@ -40,12 +44,17 @@ class AfricasTalkingService {
         response += await this.getTransferXML(language);
         break;
       case "end":
-        const endAudioUrl = staticAudioService.getStaticAudioUrl(language, 'goodbye');
+        const endAudioUrl = staticAudioService.getStaticAudioUrl(
+          language,
+          "goodbye"
+        );
         if (endAudioUrl) {
           response += `  <Play url="${stripQueryParams(endAudioUrl)}"/>`;
         } else {
-          const endText = staticAudioService.getStaticText(language, 'goodbye');
-          response += `  <Say voice="${this.getVoiceForLanguage(language)}" playBeep="false">${this.escapeXML(endText)}</Say>`;
+          const endText = staticAudioService.getStaticText(language, "goodbye");
+          response += `  <Say voice="${this.getVoiceForLanguage(
+            language
+          )}" playBeep="false">${this.escapeXML(endText)}</Say>`;
         }
         // Just end with closing tag - AT will end call automatically
         break;
@@ -84,12 +93,15 @@ class AfricasTalkingService {
 </Response>`;
   }
 
-  async generateRecordingResponse(prompt: string, language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
+  async generateRecordingResponse(
+    prompt: string,
+    language: "en" | "yo" | "ha" | "ig" = "en"
+  ): Promise<string> {
     const audioUrl = await this.generateTTSAudio(prompt, language);
-    const playTag = audioUrl ? 
-      `<Play url="${stripQueryParams(audioUrl)}"/>` : 
-      `<Say>${this.escapeXML(prompt)}</Say>`;
-    
+    const playTag = audioUrl
+      ? `<Play url="${stripQueryParams(audioUrl)}"/>`
+      : `<Say>${this.escapeXML(prompt)}</Say>`;
+
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
@@ -105,9 +117,11 @@ class AfricasTalkingService {
 </Response>`;
   }
 
-  async generateErrorResponse(language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
-    const audioUrl = staticAudioService.getStaticAudioUrl(language, 'error');
-    
+  async generateErrorResponse(
+    language: "en" | "yo" | "ha" | "ig" = "en"
+  ): Promise<string> {
+    const audioUrl = staticAudioService.getStaticAudioUrl(language, "error");
+
     if (audioUrl) {
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -117,7 +131,7 @@ class AfricasTalkingService {
     }
 
     // Fallback to text if static audio not available
-    const errorText = staticAudioService.getStaticText(language, 'error');
+    const errorText = staticAudioService.getStaticText(language, "error");
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say>${this.escapeXML(errorText)}</Say>
@@ -125,7 +139,9 @@ class AfricasTalkingService {
 </Response>`;
   }
 
-  async generateTransferResponse(language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
+  async generateTransferResponse(
+    language: "en" | "yo" | "ha" | "ig" = "en"
+  ): Promise<string> {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${await this.getTransferXML(language)}
@@ -140,44 +156,64 @@ class AfricasTalkingService {
   }
 
   async generateDirectRecordingResponse(language: string): Promise<string> {
-    const audioUrl = staticAudioService.getStaticAudioUrl(language as 'en' | 'yo' | 'ha' | 'ig', 'directRecording');
-    
+    const audioUrl = staticAudioService.getStaticAudioUrl(
+      language as "en" | "yo" | "ha" | "ig",
+      "directRecording"
+    );
+
     if (audioUrl) {
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${
+    config.webhook.baseUrl
+  }/voice/recording">
     <Play url="${stripQueryParams(audioUrl)}"/>
   </Record>
 </Response>`;
     }
 
     // Fallback to text if static audio not available
-    const prompt = staticAudioService.getStaticText(language as 'en' | 'yo' | 'ha' | 'ig', 'directRecording');
+    const prompt = staticAudioService.getStaticText(
+      language as "en" | "yo" | "ha" | "ig",
+      "directRecording"
+    );
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${
+    config.webhook.baseUrl
+  }/voice/recording">
     <Say>${this.escapeXML(prompt)}</Say>
   </Record>
 </Response>`;
   }
 
   async generateFollowUpRecordingResponse(language: string): Promise<string> {
-    const audioUrl = staticAudioService.getStaticAudioUrl(language as 'en' | 'yo' | 'ha' | 'ig', 'followUpRecording');
-    
+    const audioUrl = staticAudioService.getStaticAudioUrl(
+      language as "en" | "yo" | "ha" | "ig",
+      "followUpRecording"
+    );
+
     if (audioUrl) {
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${
+    config.webhook.baseUrl
+  }/voice/recording">
     <Play url="${stripQueryParams(audioUrl)}"/>
   </Record>
 </Response>`;
     }
 
     // Fallback to text if static audio not available
-    const prompt = staticAudioService.getStaticText(language as 'en' | 'yo' | 'ha' | 'ig', 'followUpRecording');
+    const prompt = staticAudioService.getStaticText(
+      language as "en" | "yo" | "ha" | "ig",
+      "followUpRecording"
+    );
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording">
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${
+    config.webhook.baseUrl
+  }/voice/recording">
     <Say>${this.escapeXML(prompt)}</Say>
   </Record>
 </Response>`;
@@ -192,17 +228,23 @@ class AfricasTalkingService {
     };
 
     const prompt = prompts[language as keyof typeof prompts] || prompts["en"];
-    const langCode = (language as 'en' | 'yo' | 'ha' | 'ig') || 'en';
-    
+    const langCode = (language as "en" | "yo" | "ha" | "ig") || "en";
+
     // Try to use static audio for post-AI menu
-    const audioUrl = staticAudioService.getStaticAudioUrl(langCode, 'postAIMenu');
+    const audioUrl = staticAudioService.getStaticAudioUrl(
+      langCode,
+      "postAIMenu"
+    );
     let playTag: string;
-    
+
     if (audioUrl) {
       playTag = `<Play url="${stripQueryParams(audioUrl)}"/>`;
     } else {
       // Fallback to static text if audio not available
-      const staticPrompt = staticAudioService.getStaticText(langCode, 'postAIMenu');
+      const staticPrompt = staticAudioService.getStaticText(
+        langCode,
+        "postAIMenu"
+      );
       playTag = `<Say>${this.escapeXML(staticPrompt)}</Say>`;
     }
 
@@ -232,19 +274,20 @@ ${welcomeXML}
    * Generate multi-language welcome message using pre-generated static audio
    */
   private async generateMultiLanguageWelcome(): Promise<string> {
-    const audioUrl = staticAudioService.getStaticAudioUrl('en', 'welcome');
+    const audioUrl = staticAudioService.getStaticAudioUrl("en", "welcome");
 
     if (audioUrl) {
       return `    <Play url="${stripQueryParams(audioUrl)}"/>`;
     }
 
     // Fallback to text if static audio not available
-    const welcomeText = staticAudioService.getStaticText('en', 'welcome');
+    const welcomeText = staticAudioService.getStaticText("en", "welcome");
     return `    <Say>${this.escapeXML(welcomeText)}</Say>`;
   }
 
-
-  private async getRecordingXML(_language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
+  private async getRecordingXML(
+    _language: "en" | "yo" | "ha" | "ig" = "en"
+  ): Promise<string> {
     // Note: Prompt should be played BEFORE calling this method (not inside Record tag)
     // Using maxLength instead of timeout (Africa's Talking requirement)
     // maxLength: 30 seconds max recording duration
@@ -260,18 +303,30 @@ ${welcomeXML}
   </Record>`;
   }
 
-  private async getTransferXML(language: 'en' | 'yo' | 'ha' | 'ig' = 'en'): Promise<string> {
-    const audioUrl = staticAudioService.getStaticAudioUrl(language, 'transfer');
-    
+  private async getTransferXML(
+    language: "en" | "yo" | "ha" | "ig" = "en"
+  ): Promise<string> {
+    const audioUrl = staticAudioService.getStaticAudioUrl(language, "transfer");
+
     if (audioUrl) {
       return `<Play url="${stripQueryParams(audioUrl)}"/>
-  <Dial phoneNumbers="${config.agent.phoneNumber}" record="true" sequential="true" callbackUrl="${config.webhook.baseUrl}/voice/transfer"/>`;
+  <Dial phoneNumbers="${
+    config.agent.phoneNumber
+  }" record="true" sequential="true" callbackUrl="${
+        config.webhook.baseUrl
+      }/voice/transfer"/>`;
     }
 
     // Fallback to text if static audio not available
-    const transferText = staticAudioService.getStaticText(language, 'transfer');
-    return `<Say voice="${this.getVoiceForLanguage(language)}" playBeep="false">${this.escapeXML(transferText)}</Say>
-  <Dial phoneNumbers="${config.agent.phoneNumber}" record="true" sequential="true" callbackUrl="${config.webhook.baseUrl}/voice/transfer"/>`;
+    const transferText = staticAudioService.getStaticText(language, "transfer");
+    return `<Say voice="${this.getVoiceForLanguage(
+      language
+    )}" playBeep="false">${this.escapeXML(transferText)}</Say>
+  <Dial phoneNumbers="${
+    config.agent.phoneNumber
+  }" record="true" sequential="true" callbackUrl="${
+      config.webhook.baseUrl
+    }/voice/transfer"/>`;
   }
 
   async makeCall(phoneNumber: string): Promise<boolean> {
@@ -319,31 +374,30 @@ ${welcomeXML}
    * Check if TTS is currently available
    */
   isTTSAvailable(): boolean {
-    // Always return true unless explicitly disabled by config
-    if (config.testing.useSayOnly) {
-      return false;
-    }
     return true;
   }
 
   /**
    * Generate TTS audio for text in specified language
    */
-  async   generateTTSAudio(text: string, language: 'en' | 'yo' | 'ha' | 'ig', phoneNumber: string = 'unknown', sessionId?: string): Promise<string | null> {
+  async generateTTSAudio(
+    text: string,
+    language: "en" | "yo" | "ha" | "ig",
+    phoneNumber: string = "unknown",
+    sessionId?: string
+  ): Promise<string | null> {
     try {
-      // Check if we should use Say only for testing
-      if (config.testing.useSayOnly) {
-        logger.info('Using Say only mode for testing - skipping TTS generation');
-        return null; // Will use Say tag
-      }
+      const actualLanguage = language;
 
-      // Force English only if testing flag is set
-      const actualLanguage = config.testing.forceEnglishOnly ? 'en' : language;
-
-      const result = await ttsService.generateAIAudio(text, actualLanguage, phoneNumber, sessionId);
+      const result = await ttsService.generateAIAudio(
+        text,
+        actualLanguage,
+        phoneNumber,
+        sessionId
+      );
       return result.audioUrl;
     } catch (error) {
-      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
+      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : "";
       logger.error(`TTS${sessionInfo} failed for ${language}:`, error);
       return null; // Fallback to Say tag
     }
@@ -357,9 +411,9 @@ ${welcomeXML}
   /**
    * Get voice name for language according to Google TTS supported voices
    */
-  private getVoiceForLanguage(language: 'en' | 'yo' | 'ha' | 'ig'): string {
+  private getVoiceForLanguage(language: "en" | "yo" | "ha" | "ig"): string {
     // Use simple 'woman' voice - more compatible with Africa's Talking
-    return 'woman';
+    return "woman";
   }
 
   /**
@@ -367,42 +421,45 @@ ${welcomeXML}
    */
   private escapeXML(text: string): string {
     return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;');
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
   }
 
-  private getLocalizedText(key: string, language: 'en' | 'yo' | 'ha' | 'ig'): string {
+  private getLocalizedText(
+    key: string,
+    language: "en" | "yo" | "ha" | "ig"
+  ): string {
     const texts: Record<string, Record<string, string>> = {
       goodbye: {
         en: "Thank you for using Agrocist. Have a great day!",
         yo: "A dúpẹ́ fún lilo Agrocist. Ẹ ní ọjọ́ tí ó dára!",
         ha: "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!",
-        ig: "Daalụ maka iji Agrocist. Nwee ụbọchị ọma!"
+        ig: "Daalụ maka iji Agrocist. Nwee ụbọchị ọma!",
       },
       error: {
         en: "I'm sorry, I didn't understand that. Let me take you back to the main menu.",
         yo: "Má bínú, kò yé mi ohun tí ẹ sọ. Ẹ jẹ́ kí n gbé yín padà sí àtòjọ àkọ́kọ́.",
         ha: "Yi hakuri, ban fahimci hakan ba. Bari in mayar da ku zuwa babban menu.",
-        ig: "Ewela iwe, aghọtaghị m ihe ị kwuru. Ka m laghachi gị na menu izizi."
+        ig: "Ewela iwe, aghọtaghị m ihe ị kwuru. Ka m laghachi gị na menu izizi.",
       },
       record_prompt: {
         en: "Please describe your livestock concern. Speak clearly after the beep and press hash when done.",
         yo: "Ẹ sọ ìṣòro ẹranko yín kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
         ha: "Don Allah ku bayyana matsalar dabbobinku. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama.",
-        ig: "Biko kọwaa nsogbu anụmanụ gị. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara."
+        ig: "Biko kọwaa nsogbu anụmanụ gị. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara.",
       },
       transfer: {
         en: "Please hold while I connect you to one of our veterinary experts.",
         yo: "Ẹ dúró síbẹ̀ kí n so yín mọ́ ọ̀kan lára àwọn amọ̀ràn oníwòsàn ẹranko wa.",
         ha: "Don Allah ku jira yayin da nake haɗa ku da ɗaya daga cikin ƙwararrun likitocin dabbobinmu.",
-        ig: "Biko chere ka m jikọọ gị na otu n'ime ndị ọkachamara veterinary anyị."
-      }
+        ig: "Biko chere ka m jikọọ gị na otu n'ime ndị ọkachamara veterinary anyị.",
+      },
     };
 
-    return texts[key]?.[language] || texts[key]?.['en'] || '';
+    return texts[key]?.[language] || texts[key]?.["en"] || "";
   }
 }
 

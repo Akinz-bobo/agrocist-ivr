@@ -3,14 +3,7 @@ import cloudinaryService from "./cloudinaryService";
 import localAudioService from "./localAudioService";
 import config from "../config";
 import { stripQueryParams } from "../utils/urlUtils";
-// import Spitch from "spitch";
-// import { ElevenLabsClient, play } from "@elevenlabs/elevenlabs-js";
-
-// const elevenlabs = new ElevenLabsClient({
-//   apiKey: process.env.ELEVENLABS_API_KEY,
-// });
-
-// const spitch = new Spitch({ apiKey: process.env.SPITCH_API_KEY });
+import Spitch from "spitch";
 
 export interface StaticAudioTexts {
   welcome: string;
@@ -29,7 +22,101 @@ export interface StaticAudioTexts {
 }
 
 class StaticAudioService {
-  private staticTexts: Record<string, StaticAudioTexts> = {
+  private client: Spitch;
+  // private staticTexts: Record<string, StaticAudioTexts> = {
+  //   en: {
+  //     welcome:
+  //       "Welcome to Agrocist, your trusted livestock farming partner. Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.",
+  //     processing:
+  //       "Thank you for your question. Agrocist is analyzing your concern.",
+  //     analysisWait:
+  //       "Please wait while we analyze your concern. This may take a few moments.",
+  //     error:
+  //       "I'm sorry, I didn't understand that. Let me take you back to the main menu.",
+  //     goodbye: "Thank you for using Agrocist. Have a great day!",
+  //     noRecording:
+  //       "I didn't hear your recording. Please try again and speak after the beep.",
+  //     wait: "Just a moment, processing your request.",
+  //     directRecording:
+  //       "You have selected English. Please describe your livestock concern. Speak clearly after the beep and press hash when done.",
+  //     followUpRecording: "What else can I help you with?",
+  //     postAIMenu: "Press 1 for another question or press 0 to end the call.",
+  //     noInputMessage:
+  //       "We did not receive your selection. Let me repeat the options.",
+  //     transfer:
+  //       "Please hold while I connect you to one of our veterinary experts.",
+  //     languageTimeout:
+  //       "We did not receive your response. Let me repeat the options. Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.",
+  //   },
+  //   yo: {
+  //     welcome:
+  //       "Ẹ káàbọ̀ sí Agrocist, alábáṣepọ̀ òwe ẹranko tí ẹ lè gbẹ́kẹ̀lé. Ẹ tẹ́ ọ̀kan fún Gẹ̀ẹ́sì, méjì fún Yorùbá, mẹ́ta fún Hausa, tàbí mẹ́rin fún Igbo.",
+  //     processing: "A dúpẹ́ fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìṣòro yín.",
+  //     analysisWait:
+  //       "Ẹ dúró díẹ̀ kí a ṣe ìtúpalẹ̀ ìṣòro yín. Èyí lè gba àkókò díẹ̀.",
+  //     error:
+  //       "Má bínú, kò yé mi ohun tí ẹ sọ. Ẹ jẹ́ kí n gbé yín padà sí àtòjọ àkọ́kọ́.",
+  //     goodbye: "A dúpẹ́ fún lilo Agrocist. Ẹ ní ọjọ́ tí ó dára!",
+  //     noRecording:
+  //       "Mi ò gbọ́ ìgbóhùn yín. Ẹ jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan si, kí ẹ sì sọ̀rọ̀ lẹ́yìn ìró àlámọ́.",
+  //     wait: "Ẹ dúró díẹ̀, a ń ṣe ìbéèrè yín.",
+  //     directRecording:
+  //       "Ẹ ti yan Èdè Yorùbá. Ẹ sọ ìṣòro ẹranko yín kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
+  //     followUpRecording: "Kíni mìíràn tí mo lè ṣe fún yín?",
+  //     postAIMenu:
+  //       "Ẹ tẹ́ ọ̀kan fún ìbéèrè mìíràn tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
+  //     noInputMessage: "A kò gbọ́ àṣàyàn yín. Ẹ jẹ́ kí n tún àwọn àṣàyàn náà sọ.",
+  //     transfer:
+  //       "Ẹ dúró síbẹ̀ kí n so yín mọ́ ọ̀kan lára àwọn amọ̀ràn oníwòsàn ẹranko wa.",
+  //     languageTimeout:
+  //       "A kò gbọ́ ìdáhùn yín. Ẹ jẹ́ kí n tún àwọn àṣàyàn náà sọ. Ẹ tẹ́ ọ̀kan fún Gẹ̀ẹ́sì, méjì fún Yorùbá, mẹ́ta fún Hausa, tàbí mẹ́rin fún Igbo.",
+  //   },
+  //   ha: {
+  //     welcome:
+  //       "Maraba da zuwa Agrocist, abokin gona na kiwo da za ku iya dogara da shi. Danna 1 don Turanci, 2 don Yoruba, 3 don Hausa, ko 4 don Igbo.",
+  //     processing: "Na gode da tambayar ku. Agrocist yana nazarin damuwar ku.",
+  //     analysisWait:
+  //       "Don Allah ku jira yayin da muke nazarin damuwar ku. Wannan na iya ɗaukar ɗan lokaci.",
+  //     error:
+  //       "Yi hakuri, ban fahimci hakan ba. Bari in mayar da ku zuwa babban menu.",
+  //     goodbye: "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!",
+  //     noRecording:
+  //       "Ban ji rikodin ku ba. Don Allah ku sake gwadawa kuma ku yi magana bayan sautin.",
+  //     wait: "Don Allah ku ɗan jira, muna aiwatar da buƙatarku.",
+  //     directRecording:
+  //       "Kun zaɓi Hausa. Don Allah ku bayyana matsalar dabbobinku. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama.",
+  //     followUpRecording: "Me kuma zan iya taimaka muku da shi?",
+  //     postAIMenu: "Danna 1 don wata tambaya ko danna 0 don kammala kiran.",
+  //     noInputMessage: "Ba mu karɓi zaɓin ku ba. Bari in sake maimaita zaɓukan.",
+  //     transfer:
+  //       "Don Allah ku jira yayin da nake haɗa ku da ɗaya daga cikin ƙwararrun likitocin dabbobinmu.",
+  //     languageTimeout:
+  //       "Ba mu karɓi amsar ku ba. Bari in sake maimaita zaɓukan. Danna 1 don Turanci, 2 don Yoruba, 3 don Hausa, ko 4 don Igbo.",
+  //   },
+  //   ig: {
+  //     welcome:
+  //       "Nnọọ na Agrocist, onye enyi gị n'ọrụ anụmanụ ị nwere ike ịdabere na ya. Pịa 1 maka Bekee, 2 maka Yoruba, 3 maka Hausa, ma ọ bụ 4 maka Igbo.",
+  //     processing: "Daalụ maka ajụjụ gị. Agrocist na-enyocha nsogbu gị.",
+  //     analysisWait:
+  //       "Biko chere ka anyị nyochaa nsogbu gị. Nke a nwere ike were obere oge.",
+  //     error:
+  //       "Ewela iwe, aghọtaghị m ihe ị kwuru. Ka m laghachi gị na menu izizi.",
+  //     goodbye: "Daalụ maka iji Agrocist. Nwee ụbọchị ọma!",
+  //     noRecording:
+  //       "Anụghị m ndekọ gị. Biko gbalịa ọzọ ma kwuo okwu mgbe ụda ahụ gasịrị.",
+  //     wait: "Chere ntakịrị, anyị na-edozi ihe ị chọrọ.",
+  //     directRecording:
+  //       "Ịhọrọla Igbo. Biko kọwaa nsogbu anụmanụ gị. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara.",
+  //     followUpRecording: "Gịnị ọzọ ka m nwere ike inyere gị aka?",
+  //     postAIMenu: "Pịa 1 maka ajụjụ ọzọ ma ọ bụ pịa 0 iji kwụsị oku a.",
+  //     noInputMessage: "Anyị anatabeghị nhọrọ gị. Ka m kwughachi nhọrọ ndị ahụ.",
+  //     transfer:
+  //       "Biko chere ka m jikọọ gị na otu n'ime ndị ọkachamara veterinary anyị.",
+  //     languageTimeout:
+  //       "Anyị anatabeghị azịza gị. Ka m kwughachi nhọrọ ndị ahụ. Pịa 1 maka Bekee, 2 maka Yoruba, 3 maka Hausa, ma ọ bụ 4 maka Igbo.",
+  //   },
+  // };
+  staticTexts: Record<string, any> = {
     en: {
       welcome:
         "Welcome to Agrocist, your trusted livestock farming partner. Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.",
@@ -38,107 +125,119 @@ class StaticAudioService {
       analysisWait:
         "Please wait while we analyze your concern. This may take a few moments.",
       error:
-        "I'm sorry, I didn't understand that. Let me take you back to the main menu.",
+        "I'm sorry, I didn’t understand that. Let me take you back to the main menu.",
       goodbye: "Thank you for using Agrocist. Have a great day!",
       noRecording:
-        "I didn't hear your recording. Please try again and speak after the beep.",
+        "I didn’t hear your recording. Please try again and speak after the beep.",
       wait: "Just a moment, processing your request.",
       directRecording:
         "You have selected English. Please describe your livestock concern. Speak clearly after the beep and press hash when done.",
       followUpRecording: "What else can I help you with?",
-      postAIMenu: "Press 1 for another question or press 0 to end the call.",
+      postAIMenu: "Press 1 for another question, or press 0 to end the call.",
       noInputMessage:
         "We did not receive your selection. Let me repeat the options.",
       transfer:
         "Please hold while I connect you to one of our veterinary experts.",
       languageTimeout:
-        "We did not receive your response. Let me repeat the options. Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.",
+        "We did not receive your response. Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.",
     },
+
     yo: {
       welcome:
-        "Ẹ káàbọ̀ sí Agrocist, alábáṣepọ̀ òwe ẹranko tí ẹ lè gbẹ́kẹ̀lé. Ẹ tẹ́ ọ̀kan fún Gẹ̀ẹ́sì, méjì fún Yorùbá, mẹ́ta fún Hausa, tàbí mẹ́rin fún Igbo.",
-      processing: "A dúpẹ́ fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìṣòro yín.",
-      analysisWait: "Ẹ dúró díẹ̀ kí a ṣe ìtúpalẹ̀ ìṣòro yín. Èyí lè gba àkókò díẹ̀.",
+        "Ẹ káàbọ̀ sí Agrocist, alábàáṣiṣẹ́ agbẹ-ẹranko tí ẹ lè gbẹ́kẹ̀lé. Ẹ tẹ́ 1 fún Gẹ̀ẹ́sì, 2 fún Yorùbá, 3 fún Hausa, tàbí 4 fún Ìgbò.",
+      processing: "O ṣeun fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìbéèrè yín.",
+      analysisWait:
+        "Ẹ jọ̀ọ́, ẹ dúró díẹ̀ kí a lè ṣe ìtúpalẹ̀ ìbéèrè yín. Ó lè gba ìsẹ́jú díẹ̀.",
       error:
-        "Má bínú, kò yé mi ohun tí ẹ sọ. Ẹ jẹ́ kí n gbé yín padà sí àtòjọ àkọ́kọ́.",
-      goodbye: "A dúpẹ́ fún lilo Agrocist. Ẹ ní ọjọ́ tí ó dára!",
+        "Ẹ má bínú, ohun tí ẹ sọ kò ye mí. Ẹ jẹ́ kí n gbe yín padà sí ipele àkọ́kọ́.",
+      goodbye: "O ṣeun fún lílo Agrocist. Ẹ ní ọjọ́ àlàáfíà!",
       noRecording:
-        "Mi ò gbọ́ ìgbóhùn yín. Ẹ jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan si, kí ẹ sì sọ̀rọ̀ lẹ́yìn ìró àlámọ́.",
-      wait: "Ẹ dúró díẹ̀, a ń ṣe ìbéèrè yín.",
+        "Mi ò gbọ́ ohun tí ẹ wí. Ẹ jọ̀ọ́, kí ẹ gbìyànjú lẹ́ẹ̀kansi lẹ́yìn tí ẹ bá gbọ́ agogo náà.",
+
+      wait: "Ẹ jọ̀ọ́, ẹ dúró díẹ̀, a ń ṣe ìmúlòlùfẹ́ ìbéèrè yín.",
       directRecording:
-        "Ẹ ti yan Èdè Yorùbá. Ẹ sọ ìṣòro ẹranko yín kedere lẹ́yìn ìró àlámọ́ (beep), kí ẹ sì tẹ́ hash nígbà tí ẹ bá parí.",
-      followUpRecording: "Kíni mìíràn tí mo lè ṣe fún yín?",
-      postAIMenu:
-        "Ẹ tẹ́ ọ̀kan fún ìbéèrè mìíràn tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
-      noInputMessage: "A kò gbọ́ àṣàyàn yín. Ẹ jẹ́ kí n tún àwọn àṣàyàn náà sọ.",
-      transfer:
-        "Ẹ dúró síbẹ̀ kí n so yín mọ́ ọ̀kan lára àwọn amọ̀ràn oníwòsàn ẹranko wa.",
+        "Ẹ ti yan èdè Yorùbá. Ẹ ṣàpèjúwe ìbéèrè ẹran-ọ̀sìn yín. Ẹ sọ kedere lẹ́yìn tí ẹ gbọ́ agogo náà. Kí ẹ sì tẹ haasi nígbà tí ẹ bá parí.",
+      followUpRecording: "Kí ni míì tí ẹ fẹ́ kí n ran yín lọ́wọ́?",
+      postAIMenu: "Tẹ 1 fún ìbéèrè míì, tàbí tẹ 0 láti parí ìpè.",
+      noInputMessage:
+        "A kò gba yíyan kankan. Ẹ jẹ́ kí n tún àwọn àṣàyàn náà sọ.",
+      transfer: "Ẹ jọ̀ọ́, ẹ dúró díẹ̀ kí n bá yín so pọ̀ mọ́ amòfin ẹranko wa.",
       languageTimeout:
-        "A kò gbọ́ ìdáhùn yín. Ẹ jẹ́ kí n tún àwọn àṣàyàn náà sọ. Ẹ tẹ́ ọ̀kan fún Gẹ̀ẹ́sì, méjì fún Yorùbá, mẹ́ta fún Hausa, tàbí mẹ́rin fún Igbo.",
+        "Ẹ ò tẹ́ nkankan, tẹ́ 1 fún Gẹ̀ẹ́sì, 2 fún Yorùbá, 3 fún Hausa, tàbí 4 fún Ìgbò.",
     },
+
     ha: {
       welcome:
-        "Maraba da zuwa Agrocist, abokin gona na kiwo da za ku iya dogara da shi. Danna 1 don Turanci, 2 don Yoruba, 3 don Hausa, ko 4 don Igbo.",
-      processing: "Na gode da tambayar ku. Agrocist yana nazarin damuwar ku.",
-      analysisWait: "Don Allah ku jira yayin da muke nazarin damuwar ku. Wannan na iya ɗaukar ɗan lokaci.",
+        "Barka da zuwa Agrocist, amintaccen abokin ku a harkar kiwon dabbobi. Latsa 1 don Turanci, 2 don Yoruba, 3 don Hausa, ko 4 don Igbo.",
+      processing: "Mun gode da tambayarka. Agrocist yana nazarin tambayar ka.",
+      analysisWait:
+        "Da fatan za ka jira yayin da muke nazarin tambayar ka. Wannan zai iya ɗaukar ɗan lokaci kaɗan.",
       error:
-        "Yi hakuri, ban fahimci hakan ba. Bari in mayar da ku zuwa babban menu.",
-      goodbye: "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!",
+        "Yi haƙuri, ban fahimci abin da ka faɗa ba. Zan mayar da kai zuwa babban menu.",
+      goodbye: "Mun gode da amfani da Agrocist. Yi rana mai kyau!",
       noRecording:
-        "Ban ji rikodin ku ba. Don Allah ku sake gwadawa kuma ku yi magana bayan sautin.",
-      wait: "Don Allah ku ɗan jira, muna aiwatar da buƙatarku.",
+        "Ban ji abin da kuka faɗa ba. Da fatan za ku sake gwadawa bayan karar beep.",
+
+      wait: "Da fatan ka jira, muna sarrafa buƙatarka.",
       directRecording:
-        "Kun zaɓi Hausa. Don Allah ku bayyana matsalar dabbobinku. Ku yi magana a bayyane bayan sautin (beep), sannan ku danna hash idan kun gama.",
-      followUpRecording: "Me kuma zan iya taimaka muku da shi?",
-      postAIMenu: "Danna 1 don wata tambaya ko danna 0 don kammala kiran.",
-      noInputMessage: "Ba mu karɓi zaɓin ku ba. Bari in sake maimaita zaɓukan.",
+        "Ka zaɓi Hausa. Don Allah ka bayyana tambayar da ta shafi dabbobinka. Ka yi magana a sarari bayan beep sannan ka danna hash idan ka gama.",
+      followUpRecording: "Me zan taimaka maka da shi kuma?",
+      postAIMenu: "Latsa 1 don wani tambaya, ko 0 don rufe kiran.",
+      noInputMessage: "Ba mu samu zabinka ba. Zan maimaita zaɓuɓɓukan.",
       transfer:
-        "Don Allah ku jira yayin da nake haɗa ku da ɗaya daga cikin ƙwararrun likitocin dabbobinmu.",
+        "Da fatan ka jira yayin da nake haɗa ka da kwararren likitan dabbobi.",
       languageTimeout:
-        "Ba mu karɓi amsar ku ba. Bari in sake maimaita zaɓukan. Danna 1 don Turanci, 2 don Yoruba, 3 don Hausa, ko 4 don Igbo.",
+        "Ba ku danna komai ba, latsa 1 don Turanci, 2 don Yoruba, 3 don Hausa, ko 4 don Igbo.",
     },
+
     ig: {
       welcome:
-        "Nnọọ na Agrocist, onye enyi gị n'ọrụ anụmanụ ị nwere ike ịdabere na ya. Pịa 1 maka Bekee, 2 maka Yoruba, 3 maka Hausa, ma ọ bụ 4 maka Igbo.",
-      processing: "Daalụ maka ajụjụ gị. Agrocist na-enyocha nsogbu gị.",
-      analysisWait: "Biko chere ka anyị nyochaa nsogbu gị. Nke a nwere ike were obere oge.",
+        "Nnọọ na Agrocist, onye òtù gị a pụrụ ịtụkwasị obi n'ịzụ anụmanụ. Pịa 1 maka Bekee, 2 maka Yoruba, 3 maka Hausa, ma ọ bụ 4 maka Igbo.",
+      processing: "Daalụ maka ajụjụ gị. Agrocist na-enyocha ajụjụ ị jụrụ.",
+      analysisWait:
+        "Biko chere obere ka anyị nyochaa ajụjụ gị. Nke a nwere ike were obere oge.",
       error:
-        "Ewela iwe, aghọtaghị m ihe ị kwuru. Ka m laghachi gị na menu izizi.",
-      goodbye: "Daalụ maka iji Agrocist. Nwee ụbọchị ọma!",
+        "Biko, echeghị m ihe i kwuru nke ọma. Ka m weghachite gị na isi menu.",
+      goodbye: "Daalụ maka iji Agrocist. Ka ụbọchi gị bụrụ nke ọma!",
       noRecording:
-        "Anụghị m ndekọ gị. Biko gbalịa ọzọ ma kwuo okwu mgbe ụda ahụ gasịrị.",
-      wait: "Chere ntakịrị, anyị na-edozi ihe ị chọrọ.",
+        "Anụghị m ihe ị kwuru. Biko gbalịa ọzọ mgbe ụda beep gasịrị.",
+      wait: "Biko chere ntakịrị ka anyị na-emekọ ihe i rịọrọ.",
       directRecording:
-        "Ịhọrọla Igbo. Biko kọwaa nsogbu anụmanụ gị. Kwuo okwu n'ụzọ doro anya mgbe ụda ahụ (beep) gasịrị, wee pịa hash mgbe ị mechara.",
-      followUpRecording: "Gịnị ọzọ ka m nwere ike inyere gị aka?",
-      postAIMenu: "Pịa 1 maka ajụjụ ọzọ ma ọ bụ pịa 0 iji kwụsị oku a.",
-      noInputMessage: "Anyị anatabeghị nhọrọ gị. Ka m kwughachi nhọrọ ndị ahụ.",
-      transfer:
-        "Biko chere ka m jikọọ gị na otu n'ime ndị ọkachamara veterinary anyị.",
+        "Ị họrọla Igbo. Biko kọwaa ajụjụ gbasara anụmanụ gị. Kwuo nke ọma mgbe beep gasịrị ma pịa hash mgbe ị gwụchara.",
+      followUpRecording: "Kedu ihe ọzọ ka m nwere ike inyere gị?",
+      postAIMenu: "Pịa 1 maka ajụjụ ọzọ, ma ọ bụ pịa 0 ka ị kwụsị oku.",
+      noInputMessage: "Anyị enwetaghị nhọrọ gị. Ka m kwughachi nhọrọ ndị ahụ.",
+      transfer: "Biko chere ka m jikọọ gị na ọkachamara anụmanụ.",
       languageTimeout:
-        "Anyị anatabeghị azịza gị. Ka m kwughachi nhọrọ ndị ahụ. Pịa 1 maka Bekee, 2 maka Yoruba, 3 maka Hausa, ma ọ bụ 4 maka Igbo.",
+        "Ị nweghị pịa ihe ọ bụla, pịa 1 maka Bekee, 2 maka Yoruba, 3 maka Hausa, ma ọ bụ 4 maka Igbo.",
     },
   };
 
   private staticAudioUrls: Map<string, string> = new Map();
 
+  constructor() {
+    this.client = new Spitch({
+      apiKey: config.spitch.apiKey,
+    });
+  }
+
   /**
    * Pre-generate all static audio files at startup
    */
   async preGenerateStaticAudio(): Promise<void> {
-    logger.info("🎵 Starting static audio pre-generation with DSN API...");
+    logger.info("🎵 Starting static audio pre-generation with Spitch API...");
     const startTime = Date.now();
     let successCount = 0;
     let failedCount = 0;
 
-    // Check DSN API configuration
-    if (!config.dsn.username || !config.dsn.password) {
+    // Check Spitch API configuration
+    if (!config.spitch.apiKey) {
       logger.error(
-        "❌ DSN API credentials not configured - static audio generation failed"
+        "❌ Spitch API key not configured - static audio generation failed"
       );
       logger.info("🎵 Static audio pre-generation completed in 0ms");
       logger.info(
-        `✅ Success: 0, ❌ Failed: 0, Total: 0 (failed due to missing DSN credentials)`
+        `✅ Success: 0, ❌ Failed: 0, Total: 0 (failed due to missing Spitch API key)`
       );
       return;
     }
@@ -260,7 +359,9 @@ class StaticAudioService {
       const localUrl = `/audio/static/${language}_${key}.mp3`;
       if (localAudioService.fileExists(localUrl)) {
         finalUrl = `${config.webhook.baseUrl}${localUrl}`;
-        logger.info(`♻️ SKIPPED: Using existing local static file: ${cacheKey}`);
+        logger.info(
+          `♻️ SKIPPED: Using existing local static file: ${cacheKey}`
+        );
       } else {
         // Generate and save using unified method
         logger.info(`📤 Generating new static audio: ${cacheKey}`);
@@ -377,13 +478,15 @@ class StaticAudioService {
         );
         return null;
       }
-      
+
       // Convert to 8kHz if ffmpeg is available
-      const { AudioProcessor } = await import('../utils/audioProcessor');
+      const { AudioProcessor } = await import("../utils/audioProcessor");
       if (await AudioProcessor.isFFmpegAvailable()) {
         try {
           audioBuffer = await AudioProcessor.convertTo8kHz(audioBuffer);
-          logger.info(`Converted static audio to 8kHz: ${audioBuffer.length} bytes`);
+          logger.info(
+            `Converted static audio to 8kHz: ${audioBuffer.length} bytes`
+          );
         } catch (error) {
           logger.warn(`Failed to convert static audio to 8kHz: ${error}`);
         }
@@ -395,20 +498,18 @@ class StaticAudioService {
         {
           publicId,
           folder: `${config.cloudinary.folder}/static`,
-          type: 'static',
+          type: "static",
           language,
-          textKey
+          textKey,
         }
       );
-      
+
       if (cloudinaryResult) {
         logger.info(`✅ Successfully saved static audio:`);
         logger.info(`   📄 File: ${language}_${textKey}`);
         logger.info(`   🌐 URL: ${cloudinaryResult.secureUrl}`);
         return cloudinaryResult.secureUrl;
       }
-
-
     } catch (error) {
       logger.warn(
         `Failed to upload static audio to Cloudinary: ${language}_${textKey}`,
@@ -420,298 +521,76 @@ class StaticAudioService {
   }
 
   /**
-   * Generate TTS audio buffer without saving to disk
-   * COMMENTED OUT - DSN API Implementation
+   * Generate TTS audio buffer using Spitch API
    */
   private async generateTTSBuffer(
     text: string,
     language: "en" | "yo" | "ha" | "ig"
   ): Promise<Buffer | null> {
-    // Debug: Log the exact text being passed to DSN API
-    logger.warn(
-      `🔍 DSN TTS Request - Language: ${language}, Text: "${text}" (length: ${
-        text?.length || 0
-      })`
-    );
-
     if (!text || text.trim() === "") {
       logger.error(
-        `❌ Empty text provided for DSN TTS: language=${language}, text="${text}"`
+        `❌ Empty text provided for Spitch TTS: language=${language}, text="${text}"`
       );
       return null;
     }
 
     try {
+      type SpitchVoice =
+        | "amina"
+        | "ebuka"
+        | "femi"
+        | "sade"
+        | "segun"
+        | "funmi"
+        | "aliyu"
+        | "hasan"
+        | "zainab"
+        | "john"
+        | "jude"
+        | "lina"
+        | "lucy"
+        | "henry"
+        | "kani"
+        | "ngozi"
+        | "amara"
+        | "obinna"
+        | "hana"
+        | "selam"
+        | "tena"
+        | "tesfaye";
 
-      // Use DSNService for TTS generation
-      const dsnService = (await import("../utils/DSNService")).default;
-      
-      // Voice configurations
-      const voiceConfigs: Record<string, any> = {
-        en: { voiceId: "lucy", language: "en" },
-        yo: { voiceId: "sade", language: "yo" },
-        ha: { voiceId: "zainab", language: "ha" },
-        ig: { voiceId: "amara", language: "ig" },
+      const voiceMap: Record<string, SpitchVoice> = {
+        en: "john",
+        ha: "amina",
+        ig: "amara",
+        yo: "femi",
       };
 
-      const voiceConfig = voiceConfigs[language];
-      if (!voiceConfig) {
-        logger.warn(`No voice configuration found for language: ${language}`);
-        return null;
-      }
+      const selectedVoice = voiceMap[language] || "john";
 
-      // Make request using DSNService
-      const buffer = await dsnService.makeDSNRequest(text, voiceConfig);
-      if (!buffer) {
-        logger.warn("DSN service failed to generate audio");
-        return null;
-      }
+      const response = await this.client.speech.generate({
+        text,
+        language,
+        voice: selectedVoice,
+        format: "mp3",
+        model: "legacy",
+      });
 
-      // DEBUG: Log the first 4 bytes to check for magic numbers
+      const blob = await response.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
 
-      if (buffer && buffer.length > 4) {
-        const magicBytes = buffer.toString("hex", 0, 4);
-        logger.debug(`🔍 DSN TTS Buffer Magic Bytes: 0x${magicBytes}`); // Check for common signatures
-
-        if (magicBytes.startsWith("494433")) {
-          // "ID3"
-          logger.debug("➡️  Buffer signature matches MP3 (ID3 tag).");
-        } else if (magicBytes.startsWith("fffb")) {
-          // "ÿû"
-          logger.debug("➡️  Buffer signature matches MP3 (sync frame).");
-        } else if (magicBytes.startsWith("52494646")) {
-          // "RIFF"
-          logger.warn("⚠️  WARNING: Buffer signature matches WAV!");
-        } else {
-          logger.debug("❔ Buffer format is unrecognized.");
-        }
-      }
-
-      // Convert to 8kHz if ffmpeg is available
-      const { AudioProcessor } = await import('../utils/audioProcessor');
-      if (await AudioProcessor.isFFmpegAvailable()) {
-        try {
-          const convertedBuffer = await AudioProcessor.convertTo8kHz(buffer);
-          logger.info(`Converted DSN buffer to 8kHz: ${convertedBuffer.length} bytes`);
-          return convertedBuffer;
-        } catch (error) {
-          logger.warn(`Failed to convert DSN buffer to 8kHz: ${error}`);
-        }
-      }
-      
+      logger.info(`✅ Spitch static audio generated: ${buffer.length} bytes`);
       return buffer;
     } catch (error: any) {
-      // Handle common timeout and connection errors concisely
-      if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
-        logger.warn(`DSN API timeout for ${language} audio generation`);
-      } else if (error.response?.status === 504) {
-        logger.warn(`DSN API gateway timeout (504) for ${language} audio`);
-      } else if (error.response?.status >= 500) {
-        logger.warn(
-          `DSN API server error (${error.response.status}) for ${language} audio`
-        );
-      } else {
-        const errorDetails = {
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data,
-          message: error.message,
-        };
-        logger.warn(`DSN TTS failed for ${language}:`, errorDetails);
-      }
+      logger.error(`Spitch TTS failed for ${language}:`, {
+        message: error.message,
+        statusCode: error.statusCode,
+        code: error.code,
+      });
       return null;
     }
   }
-
-  /**
-   * Generate TTS audio buffer using Spitch API
-   */
-  // private async generateTTSBuffer(
-  //   text: string,
-  //   language: "en" | "yo" | "ha" | "ig"
-  // ): Promise<Buffer | null> {
-  //   logger.debug(
-  //     `🔍 Spitch TTS Request - Language: ${language}, Text: "${text}" (length: ${
-  //       text?.length || 0
-  //     })`
-  //   );
-
-  //   if (!text || text.trim() === "") {
-  //     logger.error(
-  //       `❌ Empty text provided for Spitch TTS: language=${language}, text="${text}"`
-  //     );
-  //     return null;
-  //   }
-
-  //   try {
-  //     // Voice configurations for different languages
-  //     const voiceConfigs = {
-  //       en: "lucy" as const,
-  //       yo: "sade" as const,
-  //       ha: "zainab" as const,
-  //       ig: "amara" as const,
-  //     };
-
-  //     const voiceId = voiceConfigs[language];
-  //     if (!voiceId) {
-  //       logger.warn(`No voice configuration found for language: ${language}`);
-  //       return null;
-  //     }
-
-  //     // Generate audio using Spitch SDK
-  //     const res = await spitch.speech.generate({
-  //       text: text,
-  //       language: language,
-  //       voice: voiceId,
-  //       format: "wav",
-  //     });
-
-  //     const blob = await res.blob();
-  //     const buffer = Buffer.from(await blob.arrayBuffer());
-
-  //     if (buffer && buffer.length > 4) {
-  //       const magicBytes = buffer.toString("hex", 0, 4);
-  //       logger.debug(`🔍 Spitch TTS Buffer Magic Bytes: 0x${magicBytes}`);
-
-  //       if (magicBytes.startsWith("52494646")) {
-  //         // "RIFF"
-  //         logger.debug("➡️  Buffer signature matches WAV.");
-  //       } else if (magicBytes.startsWith("494433")) {
-  //         // "ID3"
-  //         logger.debug("➡️  Buffer signature matches MP3 (ID3 tag).");
-  //       } else {
-  //         logger.debug("❔ Buffer format is unrecognized.");
-  //       }
-  //     }
-
-  //     logger.info(`✅ Spitch audio generated: ${buffer.length} bytes`);
-  //     return buffer;
-  //   } catch (error: any) {
-  //     logger.error(`Spitch TTS failed for ${language}:`, {
-  //       message: error.message,
-  //       statusCode: error.statusCode,
-  //       code: error.code,
-  //     });
-
-  //     if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
-  //       logger.warn(`Spitch API timeout for ${language} audio generation`);
-  //     } else if (error.statusCode === 401 || error.message?.includes("401")) {
-  //       logger.error(`Spitch API authentication failed - check API key`);
-  //     } else if (error.statusCode === 429 || error.message?.includes("429")) {
-  //       logger.warn(`Spitch API rate limit exceeded for ${language}`);
-  //     } else if (error.statusCode >= 500) {
-  //       logger.warn(
-  //         `Spitch API server error (${error.statusCode}) for ${language} audio`
-  //       );
-  //     }
-
-  //     return null;
-  //   }
-  // }
-
-  /**
-   * COMMENTED OUT - ElevenLabs TTS Implementation
-   */
-  // private async generateTTSBufferElevenLabs(
-  //   text: string,
-  //   language: "en" | "yo" | "ha" | "ig"
-  // ): Promise<Buffer | null> {
-  //   logger.debug(
-  //     `🔍 ElevenLabs TTS Request - Language: ${language}, Text: "${text}" (length: ${
-  //       text?.length || 0
-  //     })`
-  //   );
-  //
-  //   if (!text || text.trim() === "") {
-  //     logger.error(
-  //       `❌ Empty text provided for ElevenLabs TTS: language=${language}, text="${text}"`
-  //     );
-  //     return null;
-  //   }
-  //
-  //   try {
-  //     // Voice configurations for different languages
-  //     const voiceConfigs: Record<string, { voiceId: string }> = {
-  //       en: {
-  //         voiceId: process.env.ELEVENLABS_VOICE_ID_EN || "21m00Tcm4TlvDq8ikWAM",
-  //       },
-  //       yo: {
-  //         voiceId: process.env.ELEVENLABS_VOICE_ID_YO || "21m00Tcm4TlvDq8ikWAM",
-  //       },
-  //       ha: {
-  //         voiceId: process.env.ELEVENLABS_VOICE_ID_HA || "21m00Tcm4TlvDq8ikWAM",
-  //       },
-  //       ig: {
-  //         voiceId: process.env.ELEVENLABS_VOICE_ID_IG || "21m00Tcm4TlvDq8ikWAM",
-  //       },
-  //     };
-  //
-  //     const voiceConfig = voiceConfigs[language];
-  //     if (!voiceConfig) {
-  //       logger.warn(`No voice configuration found for language: ${language}`);
-  //       return null;
-  //     }
-  //
-  //     // Generate audio using ElevenLabs SDK
-  //     const audioStream = await elevenlabs.textToSpeech.convert(
-  //       "V0PuVTP8lJVnkKNavZmc",
-  //       {
-  //         text,
-  //         modelId: "eleven_multilingual_v2",
-  //         outputFormat: "mp3_44100_128",
-  //       }
-  //     );
-  //
-  //     // Convert ReadableStream to Buffer for Cloudinary upload
-  //     const chunks: Buffer[] = [];
-  //     for await (const chunk of audioStream) {
-  //       chunks.push(Buffer.from(chunk));
-  //     }
-  //     const buffer = Buffer.concat(chunks);
-  //
-  //     if (buffer && buffer.length > 4) {
-  //       const magicBytes = buffer.toString("hex", 0, 4);
-  //       logger.debug(`🔍 ElevenLabs TTS Buffer Magic Bytes: 0x${magicBytes}`);
-  //
-  //       if (magicBytes.startsWith("494433")) {
-  //         logger.debug("➡️  Buffer signature matches MP3 (ID3 tag).");
-  //       } else if (magicBytes.startsWith("fffb")) {
-  //         logger.debug("➡️  Buffer signature matches MP3 (sync frame).");
-  //       } else {
-  //         logger.debug("❔ Buffer format is unrecognized.");
-  //       }
-  //     }
-  //
-  //     return buffer;
-  //   } catch (error: any) {
-  //     // Log detailed error information for debugging
-  //     logger.error(`ElevenLabs TTS failed for ${language}:`, {
-  //       message: error.message,
-  //       statusCode: error.statusCode,
-  //       code: error.code,
-  //       cause: error.cause?.message || error.cause,
-  //       stack: error.stack?.split("\n")[0],
-  //     });
-  //
-  //     if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
-  //       logger.warn(`ElevenLabs API timeout for ${language} audio generation`);
-  //     } else if (error.statusCode === 401 || error.message?.includes("401")) {
-  //       logger.error(`ElevenLabs API authentication failed - check API key`);
-  //     } else if (error.statusCode === 429 || error.message?.includes("429")) {
-  //       logger.warn(`ElevenLabs API rate limit exceeded for ${language}`);
-  //     } else if (error.statusCode >= 500) {
-  //       logger.warn(
-  //         `ElevenLabs API server error (${error.statusCode}) for ${language} audio`
-  //       );
-  //     } else if (error.message?.includes("fetch failed")) {
-  //       logger.error(
-  //         `ElevenLabs API network error - check internet connection and API endpoint`
-  //       );
-  //     }
-  //
-  //     return null;
-  //   }
-  // }
 
   /**
    * Get cache statistics

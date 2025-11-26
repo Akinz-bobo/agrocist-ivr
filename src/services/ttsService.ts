@@ -96,20 +96,37 @@ class TTSService {
       const audioBuffer = Buffer.from(arrayBuffer);
 
       // Upload to Cloudinary as dynamic audio
-      const uploadResult = await cloudinaryService.uploadAudioBuffer(
-        audioBuffer,
-        {
+      let audioUrl: string;
+      try {
+        const uploadResult = await cloudinaryService.uploadAudioBuffer(
+          audioBuffer,
+          {
+            type: "dynamic",
+            language,
+            filename: `spitch_${Date.now()}_${
+              sessionId?.slice(-8) || "unknown"
+            }.mp3`,
+          }
+        );
+        audioUrl =
+          uploadResult?.secureUrl ||
+          `data:audio/mpeg;base64,${audioBuffer.toString("base64")}`;
+      } catch (uploadError) {
+        logger.warn("Cloudinary upload failed, using local file fallback", {
+          uploadError,
+          sessionId,
+        });
+        const localUrl = await localAudioService.saveAudioBuffer(audioBuffer, {
           type: "dynamic",
           language,
-          filename: `spitch_${Date.now()}_${
+          filename: `spitch_fallback_${Date.now()}_${
             sessionId?.slice(-8) || "unknown"
           }.mp3`,
-        }
-      );
-
-      const audioUrl =
-        uploadResult?.secureUrl ||
-        `data:audio/mpeg;base64,${audioBuffer.toString("base64")}`;
+        });
+        audioUrl = localUrl
+          ? `${config.webhook.baseUrl}${localUrl}`
+          : `data:audio/mpeg;base64,${audioBuffer.toString("base64")}`;
+      }
 
       return {
         audioUrl,

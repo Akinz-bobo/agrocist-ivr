@@ -203,19 +203,19 @@ class CloudinaryService {
 
       logger.debug(`Uploading buffer to Cloudinary (${buffer.length} bytes)`);
 
-      // Convert buffer to base64 data URL for upload with 15s timeout
+      // Convert buffer to base64 data URL for upload with 30s timeout
       const base64Data = `data:audio/mp3;base64,${buffer.toString("base64")}`;
 
       // Add timeout to prevent hanging uploads
       const uploadPromise = cloudinary.uploader.upload(base64Data, {
         ...uploadOptions,
         audiofrequency: 8000,
-        timeout: 15000,
+        timeout: 30000,
       });
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(
-          () => reject(new Error("Cloudinary upload timeout (15s)")),
-          15000
+          () => reject(new Error("Cloudinary upload timeout (30s)")),
+          30000
         )
       );
 
@@ -400,8 +400,8 @@ class CloudinaryService {
     const crypto = require("crypto");
     const config = require("../config").default;
 
-    // Use the same cache key logic as TTSService for consistency
-    const content = `v3-${text}-${language}-1-1-${config.dsn.audio.bitrate}-${config.dsn.audio.sampleRate}-${config.dsn.audio.speed}`;
+    // Use simplified cache key logic for Spitch TTS
+    const content = `spitch-${text}-${language}`;
     const hash = crypto.createHash("md5").update(content).digest("hex");
 
     // For static files, use descriptive naming: spitch_static_welcome_en, spitch_static_processing_yo, etc.
