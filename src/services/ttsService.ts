@@ -2,84 +2,126 @@ import config from "../config";
 import logger from "../utils/logger";
 import cloudinaryService from "./cloudinaryService";
 import localAudioService from "./localAudioService";
-import dsnService from "../utils/DSNService";
-import elevenLabsService from "../utils/ElevenLabsService";
+import Spitch from "spitch";
 
 export interface TTSOptions {
   language: "en" | "yo" | "ha" | "ig";
 }
 
+enum SupportedLanguage {
+  ENGLISH = "en",
+  YORUBA = "yo",
+  HAUSA = "ha",
+  IGBO = "ig",
+}
+
+interface TTSResponse {
+  audioUrl: string;
+  duration: number;
+  language: string;
+  processingTime: number;
+  provider: string;
+}
+
+function estimateAudioDuration(text: string): number {
+  return Math.ceil(text.length / 10); // Rough estimate: 10 chars per second
+}
+
 class TTSService {
-  // Voice configurations for each language using DSN service
-  private voiceConfigs = {
-    en: { voiceId: "lucy", language: "en" },
-    yo: { voiceId: "sade", language: "yo" },
-    ha: { voiceId: "zainab", language: "ha" },
-    ig: { voiceId: "amara", language: "ig" },
-  };
+  private client: Spitch;
+
+  constructor() {
+    this.client = new Spitch({
+      apiKey: config.spitch.apiKey,
+    });
+  }
 
   async generateAIAudio(
     text: string,
     language: "en" | "yo" | "ha" | "ig",
     phoneNumber: string,
     sessionId?: string
-  ): Promise<string> {
+  ): Promise<TTSResponse> {
     try {
-       const voiceConfig = this.voiceConfigs[language];
-      let buffer: Buffer | null = null;
-      let provider: string = ''
+      type SpitchVoice =
+        | "amina"
+        | "ebuka"
+        | "femi"
+        | "sade"
+        | "segun"
+        | "funmi"
+        | "aliyu"
+        | "hasan"
+        | "zainab"
+        | "john"
+        | "jude"
+        | "lina"
+        | "lucy"
+        | "henry"
+        | "kani"
+        | "ngozi"
+        | "amara"
+        | "obinna"
+        | "hana"
+        | "selam"
+        | "tena"
+        | "tesfaye";
 
-      // if (voiceConfig.language ==='en') {
-        provider = 'ElevenLabs';
-        buffer = await elevenLabsService.generateAudio(text, language, sessionId);
-      // } else {
-      //   provider = 'DSN';
-      //   if (!voiceConfig) {
-      //     throw new Error(`No voice configuration found for language: ${language}`);
-      //   }
-      //   buffer = await dsnService.makeDSNRequest(text, voiceConfig, sessionId);
-      // }
+      const voiceMap: Record<string, SpitchVoice> = {
+        en: "john",
+        ha: "amina",
+        ig: "amara",
+        yo: "femi",
+      };
 
-      if (!buffer) {
-        throw new Error(`Failed to generate audio from ${provider} service`);
-      }
+      const selectedVoice = voiceMap[language] || "john";
 
-      // Upload to storage (local first, then Cloudinary)
-      if (localAudioService.isEnabled() || cloudinaryService.isEnabled()) {
-        const timestamp = Date.now();
-        const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(
-          buffer,
-          {
-            folder: config.cloudinary.folder,
-            filename: `dynamic_spitch_${phoneNumber}_${language}_${timestamp}`,
-            type: 'dynamic',
-            language
-          }
-        );
+      logger.info("Spitch TTS request", {
+        text,
+        language,
+        voice: selectedVoice,
+        sessionId,
+      });
 
-        if (cloudinaryResult) {
-          const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
-          logger.info(`✅ AI audio${sessionInfo} uploaded: ${cloudinaryResult.secureUrl}`);
-          return cloudinaryResult.secureUrl;
-        } else {
-          logger.warn("Audio upload failed, falling back to data URL");
+      const response = await this.client.speech.generate({
+        text,
+        language,
+        voice: selectedVoice,
+        format: "mp3",
+        model: "legacy",
+      });
+
+      const blob = await response.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+      const audioBuffer = Buffer.from(arrayBuffer);
+
+      // Upload to Cloudinary as dynamic audio
+      const uploadResult = await cloudinaryService.uploadAudioBuffer(
+        audioBuffer,
+        {
+          type: "dynamic",
+          language,
+          filename: `spitch_${Date.now()}_${
+            sessionId?.slice(-8) || "unknown"
+          }.mp3`,
         }
-      }
+      );
 
-      // Fallback to data URL if Cloudinary is disabled or upload failed
-      const base64 = buffer.toString("base64");
-      const dataUrl = `data:audio/mp3;base64,${base64}`;
-      logger.info(`Generated data URL for AI audio (${buffer.length} bytes)`);
-      return dataUrl;
-    } catch (error: any) {
-      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
-      logger.error(`TTS${sessionInfo} failed for ${language}: ${error.message}`);
-      throw new Error(`AI audio generation failed: ${error.message || "Unknown error"}`);
+      const audioUrl =
+        uploadResult?.secureUrl ||
+        `data:audio/mpeg;base64,${audioBuffer.toString("base64")}`;
+
+      return {
+        audioUrl,
+        duration: estimateAudioDuration(text),
+        language,
+        processingTime: 0,
+        provider: "spitch",
+      };
+    } catch (error) {
+      logger.error("Spitch TTS generation failed", { error, sessionId });
+      throw error;
     }
-  }
-
-  async preAuthenticate(): Promise<void> {
-    await dsnService.preAuthenticate();
   }
 }
 

@@ -1,224 +1,134 @@
-import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
-import config from '../config';
-import logger from '../utils/logger';
-import { LivestockQuery, IVRResponse } from '../types';
-import {
-  ElevenLabsClient,
-} from "@elevenlabs/elevenlabs-js";
+import OpenAI from "openai";
+import config from "../config";
+import logger from "../utils/logger";
+import { IVRResponse } from "../types";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
+
+export enum SupportedLanguage {
+  ENGLISH = "en",
+  HAUSA = "ha",
+  IGBO = "ig",
+  YORUBA = "yo",
+}
+
+interface STTResponse {
+  text: string;
+  confidence: number;
+  language: SupportedLanguage;
+  processingTime: number;
+  provider: string;
+}
 
 class AIService {
   private openai: OpenAI;
-  private claude: Anthropic;
+
   private client: ElevenLabsClient;
-  
+
   constructor() {
     this.openai = new OpenAI({
       apiKey: config.openai.apiKey,
     });
-    
-    this.claude = new Anthropic({
-      apiKey: config.claude.apiKey,
-    });
 
     this.client = new ElevenLabsClient({
-          apiKey: process.env.ELEVENLABS_API_KEY,
-        });
+      apiKey: process.env.ELEVENLABS_API_KEY,
+    });
   }
-  
-  async processVeterinaryQuery(query: string, context?: any): Promise<IVRResponse> {
+
+  async processVeterinaryQuery(
+    query: string,
+    context?: any
+  ): Promise<IVRResponse> {
     const startTime = Date.now();
     try {
       const aiProvider = config.ai.provider;
-      
+
       // Check if we have a valid API key for the selected provider
       const hasValidKey = this.hasValidApiKey(aiProvider);
       if (!hasValidKey) {
         logger.info(`Using mock AI response (no valid ${aiProvider} key)`);
         return {
-          response: "I'm sorry, I'm unable to process your request at the moment. Please try again later or press 4 to speak with one of our veterinary experts.",
-          nextAction: 'end'
+          response:
+            "I'm sorry, I'm unable to process your request at the moment. Please try again later or press 4 to speak with one of our veterinary experts.",
+          nextAction: "end",
         };
       }
 
       const prompt = this.buildVeterinaryPrompt(query, context);
-      const language = context?.language || 'en';
+      const language = context?.language || "en";
 
       logger.info(`⚡ Starting AI query with provider: ${aiProvider}`);
 
       let response: string;
       let aiTime: number;
 
-      if (aiProvider === 'claude') {
-        response = await this.processWithClaude(prompt, language, startTime);
-        aiTime = Date.now() - startTime;
-      } else {
-        response = await this.processWithOpenAI(prompt, language, startTime);
-        aiTime = Date.now() - startTime;
-      }
+      response = await this.processWithOpenAI(prompt, language, startTime);
+      aiTime = Date.now() - startTime;
 
       if (!response) {
-        throw new Error('Empty response from AI service');
+        throw new Error("Empty response from AI service");
       }
-      
+
       const confidence = this.calculateConfidence(response, query);
 
-      logger.info(`⚡ AI processed veterinary query in ${aiTime}ms with confidence: ${confidence}`);
+      logger.info(
+        `⚡ AI processed veterinary query in ${aiTime}ms with confidence: ${confidence}`
+      );
 
       return {
         response: response, // Don't format here - let voiceController handle all text processing
-        nextAction: confidence < config.ai.confidenceThreshold ? 'transfer' : 'menu'
+        nextAction:
+          confidence < config.ai.confidenceThreshold ? "transfer" : "menu",
       };
-
     } catch (error) {
       const totalTime = Date.now() - startTime;
-      logger.error(`Error processing veterinary query after ${totalTime}ms:`, error);
+      logger.error(
+        `Error processing veterinary query after ${totalTime}ms:`,
+        error
+      );
       return {
-        response: "I'm having trouble processing your request right now. Let me connect you with one of our veterinary experts.",
-        nextAction: 'transfer'
+        response:
+          "I'm having trouble processing your request right now. Let me connect you with one of our veterinary experts.",
+        nextAction: "transfer",
       };
     }
   }
 
   private hasValidApiKey(provider: string): boolean {
-    if (provider === 'claude') {
-      return !!(config.claude.apiKey && config.claude.apiKey !== 'test_claude_key');
-    } else {
-      return !!(config.openai.apiKey && config.openai.apiKey !== 'test_openai_key');
-    }
+    return !!(
+      config.openai.apiKey && config.openai.apiKey !== "test_openai_key"
+    );
   }
 
-  private async processWithOpenAI(prompt: string, language: string, startTime: number): Promise<string> {
+  private async processWithOpenAI(
+    prompt: string,
+    language: string,
+    startTime: number
+  ): Promise<string> {
     // Use faster model for quicker responses (gpt-4o-mini is much faster than gpt-4o)
-    const model = config.openai.model.includes('mini') ? config.openai.model : 'gpt-4o-mini';
-
-    logger.info(`⚡ Using OpenAI model: ${model}`);
 
     const completion = await this.openai.chat.completions.create({
-      model: model,
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: this.getVeterinarySystemPrompt(language)
+          content: this.getVeterinarySystemPrompt(language),
         },
         {
           role: "user",
-          content: prompt
-        }
+          content: prompt,
+        },
       ],
       temperature: 0.7, // Higher for more creative, varied responses (was 0.2 - too robotic)
-      max_tokens: 200, // Reduced for faster responses (we want SHORT answers anyway)
+      max_tokens: 300, // Reduced for faster responses (we want SHORT answers anyway)
       top_p: 0.95, // Allow more token variety for natural conversation
       frequency_penalty: 0.3, // Discourage repetitive phrases like "I understand..."
-      presence_penalty: 0.2 // Encourage introducing new topics/ideas
+      presence_penalty: 0.2, // Encourage introducing new topics/ideas
     });
 
-    return completion.choices[0]?.message?.content || '';
+    return completion.choices[0]?.message?.content || "";
   }
 
-  private async processWithClaude(prompt: string, language: string, startTime: number): Promise<string> {
-    const model = config.claude.model;
-
-    logger.info(`⚡ Using Claude model: ${model}`);
-
-    const message = await this.claude.messages.create({
-      model: model,
-      max_tokens: 200, // Keep consistent with OpenAI for similar response lengths
-      temperature: 0.7, // Same temperature for consistency
-      system: this.getVeterinarySystemPrompt(language),
-      messages: [
-        {
-          role: "user",
-          content: prompt
-        }
-      ]
-    });
-
-    // Extract text from Claude's response format
-    const textContent = message.content.find(content => content.type === 'text');
-    return textContent?.text || '';
-  }
-  
-  // async processGeneralQuery(query: string, context?: any): Promise<IVRResponse> {
-  //   try {
-  //     const prompt = this.buildGeneralPrompt(query, context);
-      
-  //     const completion = await this.openai.chat.completions.create({
-  //       model: config.openai.model,
-  //       messages: [
-  //         {
-  //           role: "system",
-  //           content: this.getGeneralSystemPrompt()
-  //         },
-  //         {
-  //           role: "user",
-  //           content: prompt
-  //         }
-  //       ],
-  //       temperature: 0.5,
-  //       max_tokens: 200
-  //     });
-      
-  //     const response = completion.choices[0]?.message?.content || '';
-  //     if (!response) {
-  //       throw new Error('Empty response from AI service');
-  //     }
-      
-  //     return {
-  //       response: response, // Don't format here - let voiceController handle all text processing
-  //       nextAction: 'menu'
-  //     };
-      
-  //   } catch (error) {
-  //     logger.error('Error processing general query:', error);
-  //     return {
-  //       response: "I apologize, but I'm having difficulty understanding your request. Please try again or press 4 to speak with one of our experts.",
-  //       nextAction: 'menu'
-  //     };
-  //   }
-  // }
-
-  
-  // async classifyQuery(query: string): Promise<{ category: 'veterinary' | 'farm_records' | 'products' | 'general', confidence: number }> {
-  //   try {
-  //     const completion = await this.openai.chat.completions.create({
-  //       model: 'gpt-3.5-turbo',
-  //       messages: [
-  //         {
-  //           role: "system",
-  //           content: `You are a query classifier for a livestock farming IVR system. Classify the following query into one of these categories:
-  //           - veterinary: Animal health, diseases, symptoms, treatments, medical advice for livestock and fish
-  //           - farm_records: Farm information, livestock counts, records, data
-  //           - products: Medications, feed, treatments, purchasing, orders
-  //           - general: Greetings, general questions, unclear requests
-            
-  //           Respond with only the category name and confidence score (0-1) in this format: "category:confidence"`
-  //         },
-  //         {
-  //           role: "user",
-  //           content: query
-  //         }
-  //       ],
-  //       temperature: 0.1,
-  //       max_tokens: 20
-  //     });
-      
-  //     const response = completion.choices[0]?.message?.content || 'general:0.5';
-  //     const [category, confidenceStr] = response.split(':');
-  //     const confidence = parseFloat(confidenceStr || '0.5') || 0.5;
-      
-  //     return {
-  //       category: category as 'veterinary' | 'farm_records' | 'products' | 'general',
-  //       confidence
-  //     };
-      
-  //   } catch (error) {
-  //     logger.error('Error classifying query:', error);
-  //     return { category: 'general', confidence: 0.5 };
-  //   }
-  // }
-  
-  private getVeterinarySystemPrompt(language: string = 'en'): string {
+  private getVeterinarySystemPrompt(language: string = "en"): string {
     const prompts = {
       en: `You are Dr. AgriBot, a friendly and experienced veterinarian who helps Nigerian farmers. You're creative, dynamic, and vary your responses - no two conversations sound the same. You speak like a REAL person, not an AI following a script.
 
@@ -421,166 +331,168 @@ BỤ ONYE OKIKE. MEE NA-ATỤGHỊ ANYA. NYERE AKA. Kwuo okwu dịka ezigbo dọ
 ZAA NA BEKEE NAANỊ.`,
     };
 
-    return prompts[language as keyof typeof prompts] || prompts['en'];
+    return prompts[language as keyof typeof prompts] || prompts["en"];
   }
-  
-  private getGeneralSystemPrompt(): string {
-    return `You are AgriBot, a helpful assistant for Agrocist, a livestock farming support service in Nigeria.
 
-You help farmers with:
-- General farming questions
-- Information about our services
-- Navigation through our IVR system
-- Basic agricultural guidance
-
-Keep responses:
-- Under 150 words
-- Simple and clear for audio delivery
-- Friendly and professional
-- Include relevant menu options (press 1 for farm records, press 2 for veterinary help, press 3 for products, press 4 for vet consultation)
-
-If the question is about animal health, redirect to veterinary services.
-If it's about purchasing, redirect to product services.`;
-  }
-  
   private buildVeterinaryPrompt(query: string, context?: any): string {
     let prompt = `Farmer's question: "${query}"`;
-    
+
     if (context?.farmerId) {
       prompt += `\nFarmer ID: ${context.farmerId}`;
     }
-    
+
     if (context?.animalType) {
       prompt += `\nAnimal type: ${context.animalType}`;
     }
-    
+
     if (context?.location) {
       prompt += `\nLocation: ${context.location}`;
     }
-    
+
     return prompt;
   }
-  
+
   private calculateConfidence(response: string, query: string): number {
     // Simple confidence calculation based on response characteristics
     let confidence = 0.8;
-    
+
     // Lower confidence for uncertain language
-    const uncertainWords = ['might', 'could', 'possibly', 'perhaps', 'not sure', 'unclear'];
-    const uncertainCount = uncertainWords.filter(word => 
+    const uncertainWords = [
+      "might",
+      "could",
+      "possibly",
+      "perhaps",
+      "not sure",
+      "unclear",
+    ];
+    const uncertainCount = uncertainWords.filter((word) =>
       response.toLowerCase().includes(word)
     ).length;
-    
-    confidence -= (uncertainCount * 0.15);
-    
+
+    confidence -= uncertainCount * 0.15;
+
     // Lower confidence for very short responses
     if (response.length < 50) {
       confidence -= 0.2;
     }
-    
+
     // Lower confidence if recommending veterinary consultation
-    if (response.toLowerCase().includes('consult') || response.toLowerCase().includes('veterinarian')) {
+    if (
+      response.toLowerCase().includes("consult") ||
+      response.toLowerCase().includes("veterinarian")
+    ) {
       confidence -= 0.1;
     }
-    
+
     return Math.max(0.1, Math.min(1.0, confidence));
   }
 
-  
-  async transcribeAudio(audioUrl: string, language?: string): Promise<string> {
+  async transcribeAudio(
+    audioUrl: string,
+    language: string = "en"
+  ): Promise<string> {
     const startTime = Date.now();
+
     try {
-      // Note: Currently only OpenAI has transcription capabilities via Whisper
-      // Claude doesn't have audio transcription, so we always use OpenAI for this
-      if (!config.openai.apiKey || config.openai.apiKey === 'test_openai_key') {
-        logger.info('Using mock transcription (no valid OpenAI key for Whisper)');
-        return "I'm sorry, I couldn't understand the audio. Could you please repeat your question?";
+      let result: string;
+
+      // Use ElevenLabs for Hausa and Igbo, OpenAI for English and Yoruba
+      if (language === "ha" || language === "ig") {
+        result = await this.transcribeWithElevenLabs(
+          audioUrl,
+          language as SupportedLanguage
+        );
+      } else {
+        result = await this.transcribeWithOpenAI(
+          audioUrl,
+          language as SupportedLanguage
+        );
       }
 
-      // Download the audio file with timeout for speed
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+      const processingTime = Date.now() - startTime;
+      logger.info(
+        `⚡ Audio transcribed in ${processingTime}ms (total: ${processingTime}ms): "${result}"`
+      );
 
-      const response = await fetch(audioUrl, {
-        signal: controller.signal,
-        // Add headers to potentially speed up download
-        headers: {
-          'Accept': 'audio/*'
-        }
-      });
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`Failed to download audio: ${response.statusText}`);
-      }
-
-      const downloadTime = Date.now() - startTime;
-      logger.info(`⚡ Audio downloaded in ${downloadTime}ms`);
-
-      const audioBuffer = await response.arrayBuffer();
-      const audioBlob = new Blob([audioBuffer], { type: 'audio/wav' });
-      const audioFile = new File([audioBlob], 'recording.wav', { type: 'audio/wav' });
-
-      const transcribeStart = Date.now();
-
-      // // Transcribe using OpenAI Whisper with farming context for better accuracy
-      // const transcription = await this.openai.audio.transcriptions.create({
-      //   file: audioFile,
-      //   model: 'whisper-1',
-      //   response_format: 'verbose_json', // Get detailed response with confidence scores
-      //   temperature: 0.3 // Lower temperature for faster, more deterministic results
-      // });
-
-       const transcription:any = await this.client.speechToText.convert({
-         file: audioBlob,
-         modelId: "scribe_v1", // Model to use
-         tagAudioEvents: true, // Tag audio events like laughter, applause, etc.
-         languageCode: language, // Language of the audio file. If set to null, the model will detect the language automatically.
-         diarize: true, // Whether to annotate who is speaking
-        
-       });
-
-      const transcribeTime = Date.now() - transcribeStart;
-      const totalTime = Date.now() - startTime;
-      const transcribedText = transcription.text || transcription.words?.text || '';
-
-      // // Extract and log confidence score if available
-      // const segments = (transcription as any).segments || [];
-      // let avgConfidence: number | null = null;
-
-      // if (segments.length > 0) {
-      //   // Calculate average confidence from all segments
-      //   const totalConfidence = segments.reduce((sum: number, seg: any) => {
-      //     // Use no_speech_prob to estimate confidence: higher no_speech_prob = lower confidence
-      //     const segmentConfidence = seg.no_speech_prob !== undefined ? (1 - seg.no_speech_prob) : 0.8;
-      //     return sum + segmentConfidence;
-      //   }, 0);
-      //   avgConfidence = totalConfidence / segments.length;
-      // }
-
-      logger.info(`⚡ Transcribed (${totalTime}ms): "${transcribedText}"`);
-      logger.info(`🎯 Transcription object:`, JSON.stringify(transcription, null, 2));
-
-      // if (avgConfidence !== null) {
-      //   logger.info(`🎯 Transcription confidence: ${(avgConfidence * 100).toFixed(1)}%`);
-      //   if (avgConfidence < 0.7) {
-      //     logger.warn(`⚠️ LOW CONFIDENCE transcription - may be inaccurate. Consider asking user to repeat.`);
-      //   }
-      // }
-
-      return transcribedText;
-
-    } catch (error) {
-      const totalTime = Date.now() - startTime;
-      logger.error(`Error transcribing audio after ${totalTime}ms:`, error);
-      // Fallback to mock transcription
-      return "I'm sorry, I couldn't understand the audio. Could you please repeat your question?";
+      return result;
+    } catch (error: any) {
+      logger.error(`Transcription failed for ${language}:`, error);
+      throw new Error(`Audio transcription failed: ${error.message}`);
     }
   }
 
-  
+  private async transcribeWithElevenLabs(
+    audioUrl: string,
+    language: SupportedLanguage
+  ): Promise<string> {
+    try {
+      const axios = (await import("axios")).default;
 
-  
+      // Download audio file as buffer
+      const audioResponse = await axios.get(audioUrl, {
+        responseType: "arraybuffer",
+      });
+      const audioBlob = new Blob([audioResponse.data], {
+        type: "audio/mp3",
+      });
+
+      // Language mapping for ElevenLabs (3-letter codes)
+      const languageMap = {
+        [SupportedLanguage.ENGLISH]: "eng",
+        [SupportedLanguage.HAUSA]: "hau",
+        [SupportedLanguage.IGBO]: "ibo",
+        [SupportedLanguage.YORUBA]: "yor",
+      };
+
+      const transcription: any = await this.client.speechToText.convert({
+        file: audioBlob,
+        modelId: "scribe_v1",
+        languageCode: languageMap[language],
+      });
+
+      return transcription.text || transcription.words.text || "";
+    } catch (error: any) {
+      logger.error("ElevenLabs STT error", { error: error.message });
+      throw new Error(`ElevenLabs STT failed: ${error.message}`);
+    }
+  }
+
+  private async transcribeWithOpenAI(
+    audioUrl: string,
+    language: SupportedLanguage
+  ): Promise<string> {
+    try {
+      const axios = (await import("axios")).default;
+
+      // Download audio file as buffer first
+      const audioResponse = await axios.get(audioUrl, {
+        responseType: "arraybuffer",
+      });
+      const audioBuffer = Buffer.from(audioResponse.data);
+      const audioBlob = new Blob([audioBuffer], { type: "audio/mp3" });
+      const audioFile = new File([audioBlob], "recording.mp3", {
+        type: "audio/mp3",
+      });
+
+      const transcription: any = await this.openai.audio.transcriptions.create({
+        file: audioFile,
+        prompt: "",
+        model: "gpt-4o-mini-transcribe",
+        response_format: "json",
+        temperature: 0.2,
+      });
+
+      return transcription.text || transcription.words.text || "";
+    } catch (error: any) {
+      logger.error("OpenAI STT error", {
+        error: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        audioUrl,
+      });
+      throw new Error(`OpenAI STT failed: ${error.message}`);
+    }
+  }
 }
 
 export default new AIService();

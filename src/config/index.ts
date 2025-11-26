@@ -19,10 +19,9 @@ export const config = {
     model: process.env.OPENAI_MODEL || "gpt-4o",
   },
 
-  // Claude (Anthropic)
-  claude: {
-    apiKey: process.env.CLAUDE_API_KEY || "",
-    model: process.env.CLAUDE_MODEL || "claude-3-sonnet-20240229",
+  // Spitch (Anthropic)
+  spitch: {
+    apiKey: process.env.SPITCH_API_KEY || "",
   },
 
   // Database
@@ -54,7 +53,7 @@ export const config = {
 
   // AI
   ai: {
-    provider: process.env.AI_PROVIDER || "openai", // "openai" or "claude"
+    provider: process.env.AI_PROVIDER || "openai", // "openai"
     confidenceThreshold: parseFloat(
       process.env.AI_CONFIDENCE_THRESHOLD || "0.7"
     ),

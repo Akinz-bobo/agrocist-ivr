@@ -35,9 +35,9 @@ class VoiceController {
       } = webhookData;
 
       // Basic call info logging
-      logger.info(`📞 Call: ${sessionId} | ${callerNumber} | Active: ${isActive}`);
-
-
+      logger.info(
+        `📞 Call: ${sessionId} | ${callerNumber} | Active: ${isActive}`
+      );
 
       // CRITICAL: Follow exact Python pattern - if isActive is "0", return empty response
       if (isActive === "0") {
@@ -67,8 +67,11 @@ class VoiceController {
             );
 
             // Call summary
-            const interactions = session.engagementBuffer.aiInteractionsDetailed || [];
-            logger.info(`📋 Call Summary: ${sessionId} | ${callerNumber} | ${durationInSeconds}s | ${interactions.length} interactions`);
+            const interactions =
+              session.engagementBuffer.aiInteractionsDetailed || [];
+            logger.info(
+              `📋 Call Summary: ${sessionId} | ${callerNumber} | ${durationInSeconds}s | ${interactions.length} interactions`
+            );
 
             // Flush to database in background (non-blocking)
 
@@ -106,17 +109,10 @@ class VoiceController {
           IVRState.CALL_INITIATED,
           IVRState.WELCOME
         );
-
-        // Pre-authenticate DSN for faster TTS generation later
-        const ttsService = (await import('../services/ttsService')).default;
-        ttsService.preAuthenticate().catch(error => 
-          logger.warn('Pre-authentication failed:', error)
-        );
       }
 
       // Generate welcome response
       const welcomeXML = await africasTalkingService.generateWelcomeResponse();
-
 
       res.set("Content-Type", "application/xml");
       res.send(welcomeXML);
@@ -141,7 +137,9 @@ class VoiceController {
         callRecordingUrl,
       } = webhookData;
 
-      logger.info(`🌍 Language: ${sessionId} | DTMF: ${dtmfDigits} | Active: ${isActive}`);
+      logger.info(
+        `🌍 Language: ${sessionId} | DTMF: ${dtmfDigits} | Active: ${isActive}`
+      );
 
       // If call is not active, end call
       if (isActive === "0") {
@@ -290,7 +288,7 @@ class VoiceController {
             const goodbyeMessage = this.getGoodbyeMessage(
               selectedLanguage as "en" | "yo" | "ha" | "ig"
             );
-            const callerNumber = webhookData.callerNumber || 'unknown';
+            const callerNumber = webhookData.callerNumber || "unknown";
             responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${await this.generateLanguageSpecificSay(
@@ -323,7 +321,7 @@ class VoiceController {
         });
         sessionManager.updateSessionMenu(sessionId, "recording");
         logger.info(`✅ Language ${selectedLanguage} selected: ${sessionId}`);
-        
+
         // Track language selection (buffered - no DB write)
         sessionManager.bufferLanguageSelection(
           sessionId,
@@ -342,10 +340,7 @@ class VoiceController {
           TerminationReason.COMPLETED_SUCCESSFULLY,
           true
         );
-
       }
-
-
 
       res.set("Content-Type", "application/xml");
       res.send(responseXML);
@@ -445,9 +440,7 @@ class VoiceController {
   <GetDigits timeout="3" finishOnKey="#">
     ${directRecordingAudio}
   </GetDigits>
-  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${
-    config.webhook.baseUrl
-  }/voice/recording/${selectedLanguage}">
+  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording/${selectedLanguage}">
   </Record>
 </Response>`;
       } else {
@@ -501,18 +494,30 @@ class VoiceController {
       );
 
       // LOG CALLER INFORMATION AND RECORDING DATA
-      logger.info('📞 === CALLER INFO (Recording) ===');
+      logger.info("📞 === CALLER INFO (Recording) ===");
       logger.info(`Session ID: ${sessionId}`);
-      logger.info(`Caller Number: ${webhookData.callerNumber || 'N/A'}`);
+      logger.info(`Caller Number: ${webhookData.callerNumber || "N/A"}`);
       logger.info(`Is Active: ${isActive}`);
-      logger.info(`Recording URL: ${recording || 'N/A'}`);
-      logger.info(`callRecordingDurationInSeconds: ${callRecordingDurationInSeconds} (${typeof callRecordingDurationInSeconds})`);
-      logger.info(`durationInSeconds: ${webhookData.durationInSeconds} (${typeof webhookData.durationInSeconds})`);
-      logger.info('📊 All webhook fields related to duration:');
-      Object.keys(webhookData).filter(key => key.toLowerCase().includes('duration') || key.toLowerCase().includes('time')).forEach(key => {
-        logger.info(`  ${key}: ${(webhookData as any)[key]}`);
-      });
-      logger.info('=== END CALLER INFO ===');
+      logger.info(`Recording URL: ${recording || "N/A"}`);
+      logger.info(
+        `callRecordingDurationInSeconds: ${callRecordingDurationInSeconds} (${typeof callRecordingDurationInSeconds})`
+      );
+      logger.info(
+        `durationInSeconds: ${
+          webhookData.durationInSeconds
+        } (${typeof webhookData.durationInSeconds})`
+      );
+      logger.info("📊 All webhook fields related to duration:");
+      Object.keys(webhookData)
+        .filter(
+          (key) =>
+            key.toLowerCase().includes("duration") ||
+            key.toLowerCase().includes("time")
+        )
+        .forEach((key) => {
+          logger.info(`  ${key}: ${(webhookData as any)[key]}`);
+        });
+      logger.info("=== END CALLER INFO ===");
 
       // If call is not active, process recording if available then return
       if (isActive === "0") {
@@ -603,10 +608,16 @@ class VoiceController {
       }
 
       // Upload user recording to Cloudinary and store URLs for processing
-      const audioUploadService = (await import('../services/audioUploadService')).default;
+      const audioUploadService = (
+        await import("../services/audioUploadService")
+      ).default;
       let userRecordingUrl: string | undefined;
       try {
-        userRecordingUrl = await audioUploadService.uploadUserRecording(recording, sessionId) || undefined;
+        userRecordingUrl =
+          (await audioUploadService.uploadUserRecording(
+            recording,
+            sessionId
+          )) || undefined;
       } catch (error) {
         logger.warn(`Failed to upload user recording for ${sessionId}:`, error);
       }
@@ -692,13 +703,13 @@ class VoiceController {
       );
 
       // LOG CALLER INFORMATION
-      logger.info('📞 === CALLER INFO (Post-AI Menu) ===');
+      logger.info("📞 === CALLER INFO (Post-AI Menu) ===");
       logger.info(`Session ID: ${sessionId}`);
-      logger.info(`Caller Number: ${webhookData.callerNumber || 'N/A'}`);
+      logger.info(`Caller Number: ${webhookData.callerNumber || "N/A"}`);
       logger.info(`Is Active: ${isActive}`);
-      logger.info(`DTMF Input: ${dtmfDigits || 'N/A'}`);
+      logger.info(`DTMF Input: ${dtmfDigits || "N/A"}`);
       logger.info(`Language: ${languageParam}`);
-      logger.info('=== END CALLER INFO ===');
+      logger.info("=== END CALLER INFO ===");
 
       // If call is not active, end call
       if (isActive === "0") {
@@ -917,14 +928,14 @@ class VoiceController {
       const audioUrl = await africasTalkingService.generateTTSAudio(
         text,
         language,
-        phoneNumber || 'unknown',
+        phoneNumber || "unknown",
         sessionId
       );
       if (audioUrl) {
         return `<Play url="${audioUrl}"/>`;
       }
     } catch (error) {
-      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
+      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : "";
       logger.error(`TTS${sessionInfo} failed for ${language}:`, error);
       throw error;
     }
@@ -1021,11 +1032,14 @@ class VoiceController {
         ttsGenerating: false,
         aiResponse: undefined,
         aiReady: false,
-        ttsGenerationFailed: false
+        ttsGenerationFailed: false,
       });
 
       // 1. Transcribe audio
-      const farmerText = await aiService.transcribeAudio(recordingUrl, language);
+      const farmerText = await aiService.transcribeAudio(
+        recordingUrl,
+        language
+      );
       const transcriptionTime = Date.now() - startTime;
       logger.info(`⚡ Transcribed (${transcriptionTime}ms): "${farmerText}"`);
 
@@ -1042,11 +1056,11 @@ class VoiceController {
         language: language,
       });
       const aiTime = Date.now() - aiStartTime;
-      
+
       // 4. Clean and truncate response
       const cleanedResponse = this.cleanAIResponse(aiResponse.response);
       const truncatedResponse = this.truncateForAudio(cleanedResponse);
-      
+
       logger.info(`🤖 AI processed (${aiTime}ms): "${truncatedResponse}"`);
 
       // 5. Store AI interaction and mark as ready
@@ -1084,8 +1098,8 @@ class VoiceController {
       });
 
       const ttsStartTime = Date.now();
-      const callerNumber = session?.callerNumber || 'unknown';
-      
+      const callerNumber = session?.callerNumber || "unknown";
+
       // Set a timeout for TTS generation to prevent hanging
       const ttsTimeout = setTimeout(() => {
         sessionManager.updateSessionContext(sessionId, {
@@ -1094,8 +1108,12 @@ class VoiceController {
         });
         logger.error(`TTS timeout after 20s for ${sessionId}`);
       }, 20000);
-      
-      this.generateLanguageSpecificSay(truncatedResponse, language, callerNumber)
+
+      this.generateLanguageSpecificSay(
+        truncatedResponse,
+        language,
+        callerNumber
+      )
         .then((audioTag) => {
           clearTimeout(ttsTimeout);
           const ttsTime = Date.now() - ttsStartTime;
@@ -1105,18 +1123,22 @@ class VoiceController {
           });
           // Update the TTS generation time and AI response URL in the last interaction
           sessionManager.updateLastInteractionTTSTime(sessionId, ttsTime);
-          
+
           // Extract Cloudinary URL from audioTag if it's a Play tag
-          const urlMatch = audioTag.match(/url="([^"]+)"/); 
+          const urlMatch = audioTag.match(/url="([^"]+)"/);
           const aiResponseUrl = urlMatch ? urlMatch[1] : undefined;
           if (aiResponseUrl) {
-            sessionManager.updateLastInteractionAIResponseUrl(sessionId, aiResponseUrl);
+            sessionManager.updateLastInteractionAIResponseUrl(
+              sessionId,
+              aiResponseUrl
+            );
           }
-          
+
           logger.info(`✅ TTS cached (${ttsTime}ms): ${sessionId}`);
-          
+
           // Emit event that audio is ready
-          const aiAudioEventEmitter = require('../utils/aiAudioEventEmitter').default;
+          const aiAudioEventEmitter =
+            require("../utils/aiAudioEventEmitter").default;
           aiAudioEventEmitter.emitAudioReady(sessionId, audioTag);
         })
         .catch((err) => {
@@ -1156,8 +1178,6 @@ class VoiceController {
       const webhookData = req.body as AfricasTalkingWebhook;
       const { isActive } = webhookData;
 
-
-
       // If call is not active, just return empty response
       if (isActive === "0") {
         logger.info(
@@ -1192,11 +1212,11 @@ class VoiceController {
       if (session.context.aiReady && session.context.aiResponse) {
         logger.info(`✅ AI ready: ${sessionId}`);
         const aiResponse = session.context.aiResponse;
-        
+
         // Reset wait tracking when AI is ready
-        sessionManager.updateSessionContext(sessionId, { 
+        sessionManager.updateSessionContext(sessionId, {
           aiCheckStartTime: undefined,
-          waitMessagePlayed: false 
+          waitMessagePlayed: false,
         });
 
         // Track state transition to AI response (buffered - no DB write)
@@ -1251,7 +1271,7 @@ class VoiceController {
           logger.info(
             `🎵 Generating AI response audio on-demand (no background generation) for ${sessionId}...`
           );
-          
+
           // Generate on-demand with longer timeout
           try {
             audioTag = await this.generateLanguageSpecificSay(
@@ -1297,28 +1317,33 @@ class VoiceController {
       const lang = (currentSession?.context?.language ||
         currentSession?.language ||
         "en") as "en" | "yo" | "ha" | "ig";
-      
+
       // Initialize check start time if not set
       if (!currentSession?.context?.aiCheckStartTime) {
-        sessionManager.updateSessionContext(sessionId, { 
+        sessionManager.updateSessionContext(sessionId, {
           aiCheckStartTime: Date.now(),
-          waitMessagePlayed: false 
+          waitMessagePlayed: false,
         });
       }
-      
-      const checkStartTime = currentSession?.context?.aiCheckStartTime || Date.now();
-      const elapsedSeconds = (Date.now() - checkStartTime) / 1000;
-      const waitMessagePlayed = currentSession?.context?.waitMessagePlayed || false;
-      
 
-      
+      const checkStartTime =
+        currentSession?.context?.aiCheckStartTime || Date.now();
+      const elapsedSeconds = (Date.now() - checkStartTime) / 1000;
+      const waitMessagePlayed =
+        currentSession?.context?.waitMessagePlayed || false;
+
       let redirectXML: string;
-      
+
       if (elapsedSeconds >= 10 && !waitMessagePlayed) {
         // After 10 seconds, play extended wait message
         const waitAudio = await this.generateStaticAudioSay("wait", lang);
-        const analysisWaitAudio = await this.generateStaticAudioSay("analysisWait", lang);
-        sessionManager.updateSessionContext(sessionId, { waitMessagePlayed: true });
+        const analysisWaitAudio = await this.generateStaticAudioSay(
+          "analysisWait",
+          lang
+        );
+        sessionManager.updateSessionContext(sessionId, {
+          waitMessagePlayed: true,
+        });
         redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${waitAudio}

@@ -341,7 +341,7 @@ ${welcomeXML}
       const actualLanguage = config.testing.forceEnglishOnly ? 'en' : language;
 
       const result = await ttsService.generateAIAudio(text, actualLanguage, phoneNumber, sessionId);
-      return result;
+      return result.audioUrl;
     } catch (error) {
       const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : '';
       logger.error(`TTS${sessionInfo} failed for ${language}:`, error);

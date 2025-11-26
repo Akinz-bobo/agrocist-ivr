@@ -99,7 +99,7 @@ class CloudinaryService {
         overwrite: options.overwrite !== false,
         use_filename: true,
         unique_filename: !options.publicId, // Only use unique filename if no publicId provided
-        format: "wav", // Ensure consistent format
+        format: "mp3", // Ensure consistent format
         quality: "auto:good", // Optimize for good quality with smaller size
         transformation: {
           audio_frequency: 8000,
@@ -149,7 +149,7 @@ class CloudinaryService {
       publicId?: string;
       folder?: string;
       filename?: string;
-      type?: 'static' | 'dynamic';
+      type?: "static" | "dynamic";
       language?: string;
       textKey?: string;
     } = {}
@@ -157,12 +157,12 @@ class CloudinaryService {
     // Check local storage first - if enabled, save locally and return
     if (localAudioService.isEnabled()) {
       const localUrl = await localAudioService.saveAudioBuffer(buffer, {
-        type: options.type || 'dynamic',
+        type: options.type || "dynamic",
         filename: options.filename,
         language: options.language,
-        textKey: options.textKey
+        textKey: options.textKey,
       });
-      
+
       if (localUrl) {
         const fullUrl = `${config.webhook.baseUrl}${localUrl}`;
         logger.info(`✅ Saved audio locally (Cloudinary skipped): ${fullUrl}`);
@@ -170,13 +170,13 @@ class CloudinaryService {
         return {
           url: fullUrl,
           secureUrl: fullUrl,
-          publicId: options.publicId || 'local',
-          format: 'mp3',
-          resourceType: 'video'
+          publicId: options.publicId || "local",
+          format: "mp3",
+          resourceType: "video",
         };
       }
     }
-    
+
     // Only proceed with Cloudinary if local storage is disabled or failed
     if (!this.isEnabled()) {
       logger.debug("Cloudinary not enabled, skipping buffer upload");
