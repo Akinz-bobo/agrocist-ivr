@@ -406,10 +406,10 @@ class CloudinaryService {
 
     // For static files, use descriptive naming: spitch_static_welcome_en, spitch_static_processing_yo, etc.
     if (type === "static" && textKey) {
-      return `spitch_static_${textKey}_${language}`;
+      return `spitch_static_${textKey}_${language}_new`;
     } else if (type === "static") {
       // Fallback for static files without textKey
-      return `spitch_static-${language}-${hash}`;
+      return `spitch_static-${language}-${hash}_new`;
     } else {
       return `spitch_dynamic-${language}-${hash.substring(0, 8)}-${Date.now()}`;
     }
