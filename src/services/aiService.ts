@@ -126,7 +126,7 @@ class AIService {
       presence_penalty: 0.2, // Encourage introducing new topics/ideas
     });
 
-    return removeTextFormatting(completion.choices[0]?.message?.content || "");
+    return completion.choices[0]?.message?.content || "";
   }
 
   private getVeterinarySystemPrompt(language: string = "en"): string {

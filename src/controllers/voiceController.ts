@@ -1057,22 +1057,21 @@ class VoiceController {
       });
       const aiTime = Date.now() - aiStartTime;
 
-      // 4. Clean and truncate response
+      // 4. Clean response (no truncation)
       const cleanedResponse = this.cleanAIResponse(aiResponse.response);
-      const truncatedResponse = this.truncateForAudio(cleanedResponse);
 
-      logger.info(`🤖 AI processed (${aiTime}ms): "${truncatedResponse}"`);
+      logger.info(`🤖 AI processed (${aiTime}ms): "${cleanedResponse}"`);
 
       // 5. Store AI interaction and mark as ready
       sessionManager.addAIInteraction(
         sessionId,
         farmerText,
-        truncatedResponse,
+        cleanedResponse,
         0.9,
         "veterinary"
       );
       sessionManager.updateSessionContext(sessionId, {
-        aiResponse: truncatedResponse,
+        aiResponse: cleanedResponse,
         aiReady: true,
       });
 
@@ -1085,7 +1084,7 @@ class VoiceController {
         sessionId,
         recordingDuration,
         { query: farmerText, url: userRecordingUrl },
-        { response: truncatedResponse },
+        { response: cleanedResponse },
         aiTime,
         0,
         language,
@@ -1109,11 +1108,7 @@ class VoiceController {
         logger.error(`TTS timeout after 20s for ${sessionId}`);
       }, 20000);
 
-      this.generateLanguageSpecificSay(
-        truncatedResponse,
-        language,
-        callerNumber
-      )
+      this.generateLanguageSpecificSay(cleanedResponse, language, callerNumber)
         .then((audioTag) => {
           clearTimeout(ttsTimeout);
           const ttsTime = Date.now() - ttsStartTime;
@@ -1238,7 +1233,7 @@ class VoiceController {
 
           // Poll for completion (max 20 seconds)
           const maxWaitTime = 40000;
-          const pollInterval = 3000;
+          const pollInterval = 5000;
           const startWait = Date.now();
 
           while (
@@ -1374,19 +1369,6 @@ class VoiceController {
       res.send(await africasTalkingService.generateErrorResponse(lang));
     }
   };
-
-  /**
-   * Get wait message in appropriate language (for polling)
-   */
-  private getWaitMessage(language: "en" | "yo" | "ha" | "ig"): string {
-    const messages = {
-      en: "Just a moment, processing your request.",
-      yo: "Ẹ dúró díẹ̀, a ń ṣe ìbéèrè yín.",
-      ha: "Don Allah ku ɗan jira, muna aiwatar da buƙatarku.",
-      ig: "Chere ntakịrị, anyị na-edozi ihe ị chọrọ.",
-    };
-    return messages[language] || messages.en;
-  }
 
   /**
    * Determine termination reason based on call data
