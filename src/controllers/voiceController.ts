@@ -188,13 +188,47 @@ class VoiceController {
         logger.info(
           `⏱️ Language selection timeout (no input) for session: ${sessionId}`
         );
+
+        // Check if this is already a second timeout (to prevent infinite loops)
+        const session = sessionManager.getSession(sessionId);
+        const timeoutCount = session?.context?.timeoutCount || 0;
+
+        if (timeoutCount >= 1) {
+          // After second timeout, end call gracefully
+          logger.warn(
+            `⏱️ Multiple timeouts detected for session ${sessionId}, ending call`
+          );
+          const goodbyeAudio = await this.generateStaticAudioSay(
+            "goodbye",
+            "en"
+          );
+          const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${goodbyeAudio}
+</Response>`;
+
+          sessionManager.setTerminationInfo(
+            sessionId,
+            TerminationReason.TIMEOUT,
+            false
+          );
+          res.set("Content-Type", "application/xml");
+          res.send(responseXML);
+          return;
+        }
+
+        // Track timeout count and provide language options again
+        sessionManager.updateSessionContext(sessionId, {
+          timeoutCount: timeoutCount + 1,
+        });
+
         const timeoutAudio = await this.generateStaticAudioSay(
           "languageTimeout",
           "en"
         );
         const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <GetDigits timeout="10" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language-timeout">
+  <GetDigits timeout="15" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language-timeout">
     ${timeoutAudio}
   </GetDigits>
   <Redirect>${config.webhook.baseUrl}/voice/end</Redirect>
@@ -318,6 +352,7 @@ class VoiceController {
         }
         sessionManager.updateSessionContext(sessionId, {
           language: selectedLanguage,
+          timeoutCount: 0, // Reset timeout count on successful selection
         });
         sessionManager.updateSessionMenu(sessionId, "recording");
         logger.info(`✅ Language ${selectedLanguage} selected: ${sessionId}`);
@@ -419,30 +454,35 @@ class VoiceController {
           `✅ Language selected after timeout: ${selectedLanguage} for session: ${sessionId}`
         );
 
+        // Store selected language in session - both in context AND at session level
         const session = sessionManager.getSession(sessionId);
         if (session) {
-          sessionManager.updateSessionContext(sessionId, {
-            language: selectedLanguage as "en" | "yo" | "ha" | "ig",
-          });
-          sessionManager.bufferLanguageSelection(
-            sessionId,
-            selectedLanguage as "en" | "yo" | "ha" | "ig"
-          );
+          session.language = selectedLanguage as "en" | "yo" | "ha" | "ig";
+          sessionManager.saveSession(session);
         }
+        sessionManager.updateSessionContext(sessionId, {
+          language: selectedLanguage,
+          timeoutCount: 0, // Reset timeout count on successful selection
+        });
+        sessionManager.updateSessionMenu(sessionId, "recording");
 
-        const directRecordingAudio = await this.generateStaticAudioSay(
-          "directRecording",
+        // Track language selection and state transition
+        sessionManager.bufferLanguageSelection(
+          sessionId,
           selectedLanguage as "en" | "yo" | "ha" | "ig"
         );
+        sessionManager.bufferStateTransition(
+          sessionId,
+          IVRState.LANGUAGE_SELECTION,
+          IVRState.RECORDING_PROMPT,
+          dtmfDigits || choice.toString()
+        );
 
-        responseXML = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <GetDigits timeout="3" finishOnKey="#">
-    ${directRecordingAudio}
-  </GetDigits>
-  <Record maxLength="30" trimSilence="true" playBeep="true" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/recording/${selectedLanguage}">
-  </Record>
-</Response>`;
+        // Use the same response format as successful language selection
+        responseXML =
+          await africasTalkingService.generateDirectRecordingResponse(
+            selectedLanguage
+          );
       } else {
         // No valid input - abort call after 3 seconds
         logger.warn(
@@ -674,8 +714,6 @@ class VoiceController {
       const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${processingAudio}
-  ${analysisWaitAudio}
-  ${analysisWaitAudio}
   ${analysisWaitAudio}
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
 </Response>`;

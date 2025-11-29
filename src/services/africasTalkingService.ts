@@ -221,7 +221,7 @@ class AfricasTalkingService {
 
   async generatePostAIMenuResponse(language: string): Promise<string> {
     const prompts = {
-      en: "Press 1 for another question or press 0 to end the call.",
+      en: "Press 1 for another question, press 2 to speak with a human expert, press 3 to go back to main menu, or press 0 to end the call.",
       yo: "Ṣé ẹ fẹ́ bá dokita oníwòsàn ẹranko sọ̀rọ̀? Ẹ tẹ́ ọ̀kan láti bá amọ̀ràn sọ̀rọ̀, tàbí ẹ tẹ́ ọ̀fà láti parí ìpè náà.",
       ha: "Kana son yin magana da ƙwararren likitan dabbobi? Danna ɗaya don yin magana da ƙwararre, ko danna sifili don kammala kiran.",
       ig: "Ị nwere nsogbu ndị ọzọ? Pịa 1 iji jụọ ajụjụ ọzọ, pịa 2 iji kwuo okwu na ọkachamara mmadụ, pịa 3 iji laghachi na menu izizi, ma ọ bụ pịa 0 iji kwụsị oku a.",
@@ -250,11 +250,11 @@ class AfricasTalkingService {
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <GetDigits timeout="2" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai">
+  <GetDigits timeout="4" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai?language=${langCode}">
     ${playTag}
   </GetDigits>
   ${playTag}
-  <Redirect>${config.webhook.baseUrl}/voice/post-ai</Redirect>
+  <Redirect>${config.webhook.baseUrl}/voice/post-ai?language=${langCode}</Redirect>
 </Response>`;
   }
 
@@ -264,7 +264,8 @@ class AfricasTalkingService {
     const welcomeXML = await this.generateMultiLanguageWelcome();
 
     // Put audio INSIDE GetDigits with proper formatting, add Redirect for timeout handling
-    return `<GetDigits timeout="2" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language">
+
+    return `<GetDigits timeout="5" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language">
 ${welcomeXML}
   </GetDigits>
   <Redirect>${config.webhook.baseUrl}/voice/language</Redirect>`;
