@@ -11,35 +11,18 @@ import { IVRState, TerminationReason } from "../models/EngagementMetrics";
 class VoiceController {
   handleIncomingCall = async (req: Request, res: Response): Promise<void> => {
     try {
-      // Africa's Talking sends form data - extract from req.body
       const webhookData = req.body as any;
-      // Reduced logging for incoming webhooks
 
       const {
         sessionId,
         isActive,
         callerNumber,
-        destinationNumber,
-        direction,
-        callStartTime,
-        callStatus,
-        call_status,
-        durationInSeconds,
-        callType,
-        callEndTime,
-        callDurationInSeconds,
+        durationInSeconds = "0",
         callEndReason,
-        callRecordingUrl,
-        recordingUrl,
-        callRecordingDurationInSeconds,
       } = webhookData;
 
-      // Basic call info logging
-      logger.info(
-        `📞 Call: ${sessionId} | ${callerNumber} | Active: ${isActive}`
-      );
+      logger.info(`=== INCOMING CALL WEBHOOK ===`, webhookData);
 
-      // CRITICAL: Follow exact Python pattern - if isActive is "0", return empty response
       if (isActive === "0") {
         logger.info(`❌ Call ended: ${sessionId} (${durationInSeconds}s)`);
 
@@ -92,9 +75,6 @@ class VoiceController {
         return;
       }
 
-      // For active incoming calls (isActive="1"), respond with IVR XML
-      logger.info(`✅ Active call: ${sessionId} | ${callerNumber}`);
-
       // Create session for the incoming call
       if (sessionId && callerNumber) {
         sessionManager.createSession(sessionId, callerNumber);
@@ -129,13 +109,7 @@ class VoiceController {
   ): Promise<void> => {
     try {
       const webhookData = req.body as AfricasTalkingWebhook;
-      const {
-        sessionId,
-        isActive,
-        dtmfDigits,
-        recordingUrl,
-        callRecordingUrl,
-      } = webhookData;
+      const { sessionId, isActive, dtmfDigits } = webhookData;
 
       logger.info(
         `🌍 Language: ${sessionId} | DTMF: ${dtmfDigits} | Active: ${isActive}`
@@ -143,15 +117,6 @@ class VoiceController {
 
       // If call is not active, end call
       if (isActive === "0") {
-        const recording = recordingUrl || callRecordingUrl;
-        if (recording) {
-          logger.info(
-            `Session ${sessionId} completed with recording. URL: ${recording}`
-          );
-        } else {
-          logger.info(`Session ${sessionId} ended after language selection.`);
-        }
-
         // Flush buffered data when call ends in language selection
         const session = sessionManager.getSession(sessionId);
         if (session && session.engagementBuffer) {
@@ -228,7 +193,7 @@ class VoiceController {
         );
         const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <GetDigits timeout="15" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language-timeout">
+  <GetDigits timeout="10" callbackUrl="${config.webhook.baseUrl}/voice/language-timeout">
     ${timeoutAudio}
   </GetDigits>
   <Redirect>${config.webhook.baseUrl}/voice/end</Redirect>
@@ -1092,6 +1057,7 @@ class VoiceController {
         menu: "veterinary_ai",
         farmerId: sessionId,
         language: language,
+        sessionId: sessionId, // Pass sessionId for conversation context
       });
       const aiTime = Date.now() - aiStartTime;
 

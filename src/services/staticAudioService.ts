@@ -143,8 +143,6 @@ class StaticAudioService {
     },
 
     yo: {
-      welcome:
-        "Ẹ káàbọ̀ sí Agrocist, alábàáṣiṣẹ́ agbẹ-ẹranko tí ẹ lè gbẹ́kẹ̀lé. Ẹ tẹ́ 1 fún Gẹ̀ẹ́sì, 2 fún Yorùbá, 3 fún Hausa, tàbí 4 fún Ìgbò.",
       processing: "O ṣeun fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìbéèrè yín.",
       analysisWait:
         "Ẹ jọ̀ọ́, ẹ dúró díẹ̀ kí a lè ṣe ìtúpalẹ̀ ìbéèrè yín. Ó lè gba ìsẹ́jú díẹ̀.",
@@ -158,17 +156,15 @@ class StaticAudioService {
       directRecording:
         "Ẹ ti yan èdè Yorùbá. Ẹ ṣàpèjúwe ìbéèrè ẹran-ọ̀sìn yín. Ẹ sọ kedere lẹ́yìn tí ẹ gbọ́ agogo náà. Kí ẹ sì tẹ haasi nígbà tí ẹ bá parí.",
       followUpRecording: "Kí ni míì tí ẹ fẹ́ kí n ran yín lọ́wọ́?",
-      postAIMenu: "Tẹ 1 fún ìbéèrè míì, tàbí tẹ 0 láti parí ìpè.",
+      postAIMenu: "Tẹ ookan fún ìbéèrè míì, tàbí tẹ oodo láti parí ìpè.",
       noInputMessage:
         "A kò gba yíyan kankan. Ẹ jẹ́ kí n tún àwọn àṣàyàn náà sọ.",
       transfer: "Ẹ jọ̀ọ́, ẹ dúró díẹ̀ kí n bá yín so pọ̀ mọ́ amòfin ẹranko wa.",
       languageTimeout:
-        "Ẹ ò tẹ́ nkankan, tẹ́ 1 fún Gẹ̀ẹ́sì, 2 fún Yorùbá, 3 fún Hausa, tàbí 4 fún Ìgbò.",
+        "Ẹ ò tẹ́ nkankan, tẹ́ ookan fún Gẹ̀ẹ́sì, eeji fún Yorùbá, eeta fún Hausa, tàbí eerin fún Ìgbò.",
     },
 
     ha: {
-      welcome:
-        "Barka da zuwa Agrocist, amintaccen abokin ku a harkar kiwon dabbobi. Latsa 1 don Turanci, 2 don Yoruba, 3 don Hausa, ko 4 don Igbo.",
       processing: "Mun gode da tambayarka. Agrocist yana nazarin tambayar ka.",
       analysisWait:
         "Da fatan za ka jira yayin da muke nazarin tambayar ka. Wannan zai iya ɗaukar ɗan lokaci kaɗan.",
@@ -182,17 +178,15 @@ class StaticAudioService {
       directRecording:
         "Ka zaɓi Hausa. Don Allah ka bayyana tambayar da ta shafi dabbobinka. Ka yi magana a sarari bayan beep sannan ka danna hash idan ka gama.",
       followUpRecording: "Me zan taimaka maka da shi kuma?",
-      postAIMenu: "Latsa 1 don wani tambaya, ko 0 don rufe kiran.",
+      postAIMenu: "Latsa daya don wani tambaya, ko sifili don rufe kiran.",
       noInputMessage: "Ba mu samu zabinka ba. Zan maimaita zaɓuɓɓukan.",
       transfer:
         "Da fatan ka jira yayin da nake haɗa ka da kwararren likitan dabbobi.",
       languageTimeout:
-        "Ba ku danna komai ba, latsa 1 don Turanci, 2 don Yoruba, 3 don Hausa, ko 4 don Igbo.",
+        "Ba ku danna komai ba, latsa daya don Turanci, biyu don Yoruba, uku don Hausa, ko hudu don Igbo.",
     },
 
     ig: {
-      welcome:
-        "Nnọọ na Agrocist, onye òtù gị a pụrụ ịtụkwasị obi n'ịzụ anụmanụ. Pịa 1 maka Bekee, 2 maka Yoruba, 3 maka Hausa, ma ọ bụ 4 maka Igbo.",
       processing: "Daalụ maka ajụjụ gị. Agrocist na-enyocha ajụjụ ị jụrụ.",
       analysisWait:
         "Biko chere obere ka anyị nyochaa ajụjụ gị. Nke a nwere ike were obere oge.",
@@ -205,11 +199,11 @@ class StaticAudioService {
       directRecording:
         "Ị họrọla Igbo. Biko kọwaa ajụjụ gbasara anụmanụ gị. Kwuo nke ọma mgbe beep gasịrị ma pịa hash mgbe ị gwụchara.",
       followUpRecording: "Kedu ihe ọzọ ka m nwere ike inyere gị?",
-      postAIMenu: "Pịa 1 maka ajụjụ ọzọ, ma ọ bụ pịa 0 ka ị kwụsị oku.",
+      postAIMenu: "Pịa otu maka ajụjụ ọzọ, ma ọ bụ pịa efu ka ị kwụsị oku.",
       noInputMessage: "Anyị enwetaghị nhọrọ gị. Ka m kwughachi nhọrọ ndị ahụ.",
       transfer: "Biko chere ka m jikọọ gị na ọkachamara anụmanụ.",
       languageTimeout:
-        "Ị nweghị pịa ihe ọ bụla, pịa 1 maka Bekee, 2 maka Yoruba, 3 maka Hausa, ma ọ bụ 4 maka Igbo.",
+        "Ị nweghị pịa ihe ọ bụla, pịa otu maka Bekee, abụọ maka Yoruba, atọ maka Hausa, ma ọ bụ anọ maka Igbo.",
     },
   };
 
@@ -563,7 +557,7 @@ class StaticAudioService {
         en: "john",
         ha: "amina",
         ig: "amara",
-        yo: "femi",
+        yo: "sade",
       };
 
       const selectedVoice = voiceMap[language] || "john";

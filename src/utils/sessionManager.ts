@@ -245,6 +245,38 @@ class SessionManager {
 
 
 
+  // Get conversation history for AI context
+  getConversationHistory(sessionId: string, maxInteractions: number = 3): Array<{userQuery: string, aiResponse: string, timestamp: Date}> {
+    const session = this.getSession(sessionId);
+    if (!session?.engagementBuffer?.aiInteractionsDetailed) {
+      return [];
+    }
+    
+    // Get last N interactions for context
+    return session.engagementBuffer.aiInteractionsDetailed
+      .slice(-maxInteractions)
+      .map(interaction => ({
+        userQuery: interaction.userQuery.query,
+        aiResponse: interaction.aiResponse.response,
+        timestamp: interaction.timestamp
+      }));
+  }
+
+  // Format conversation context for AI prompt - let AI decide when to use it
+  formatConversationContext(sessionId: string): string {
+    const history = this.getConversationHistory(sessionId, 3);
+    if (history.length === 0) return '';
+    
+    let context = '\nPrevious conversation in this call:\n';
+    history.forEach((interaction, index) => {
+      context += `${index + 1}. Farmer asked: ${interaction.userQuery}\n`;
+      context += `   You responded: ${interaction.aiResponse}\n`;
+    });
+    context += '\nRemember: Acknowledge the farmer\'s diverse farming activities warmly when they ask about different animals. Show you remember their previous questions and encourage their farming diversity before answering the current question.\n';
+    
+    return context;
+  }
+
   // Cleanup method for graceful shutdown
   destroy(): void {
     if (this.cleanupInterval) {
