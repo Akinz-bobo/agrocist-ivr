@@ -71,7 +71,7 @@ class TTSService {
         en: "john",
         ha: "amina",
         ig: "amara",
-        yo: "femi",
+        yo: "sade",
       };
 
       const selectedVoice = voiceMap[language] || "john";

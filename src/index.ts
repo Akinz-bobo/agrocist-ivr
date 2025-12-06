@@ -6,6 +6,7 @@ import logger from './utils/logger';
 import database from './utils/database';
 import voiceRoutes from './routes/voice';
 import analyticsRoutes from './routes/analytics';
+import ivrRoutes from './routes/ivr';
 import staticAudioService from './services/staticAudioService';
 
 const app = express();
@@ -34,6 +35,7 @@ app.use((req, res, next) => {
 // Routes
 app.use('/voice', voiceRoutes);
 app.use('/analytics', analyticsRoutes);
+app.use('/ivr', ivrRoutes);
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
@@ -63,6 +65,7 @@ app.get('/', (req, res) => {
     endpoints: {
       voice: '/voice',
       analytics: '/analytics',
+      ivr: '/ivr',
       health: '/health'
     },
     analytics: {

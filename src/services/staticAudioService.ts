@@ -473,18 +473,18 @@ class StaticAudioService {
         return null;
       }
 
-      // Convert to 8kHz if ffmpeg is available
-      const { AudioProcessor } = await import("../utils/audioProcessor");
-      if (await AudioProcessor.isFFmpegAvailable()) {
-        try {
-          audioBuffer = await AudioProcessor.convertTo8kHz(audioBuffer);
-          logger.info(
-            `Converted static audio to 8kHz: ${audioBuffer.length} bytes`
-          );
-        } catch (error) {
-          logger.warn(`Failed to convert static audio to 8kHz: ${error}`);
-        }
-      }
+      // // Convert to 8kHz if ffmpeg is available
+      // const { AudioProcessor } = await import("../utils/audioProcessor");
+      // if (await AudioProcessor.isFFmpegAvailable()) {
+      //   try {
+      //     audioBuffer = await AudioProcessor.convertTo8kHz(audioBuffer);
+      //     logger.info(
+      //       `Converted static audio to 8kHz: ${audioBuffer.length} bytes`
+      //     );
+      //   } catch (error) {
+      //     logger.warn(`Failed to convert static audio to 8kHz: ${error}`);
+      //   }
+      // }
 
       // Use unified upload method (handles local first, then Cloudinary)
       const cloudinaryResult = await cloudinaryService.uploadAudioBuffer(

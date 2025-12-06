@@ -56,16 +56,20 @@ class AIService {
 
       const language = context?.language || "en";
       const sessionId = context?.sessionId;
-      
+
       // Always provide conversation context if available - let AI decide when to use it
       let prompt = query;
       if (sessionId) {
-        const sessionManager = (await import('../utils/sessionManager')).default;
-        const conversationContext = sessionManager.formatConversationContext(sessionId);
-        
+        const sessionManager = (await import("../utils/sessionManager"))
+          .default;
+        const conversationContext =
+          sessionManager.formatConversationContext(sessionId);
+
         if (conversationContext) {
-          prompt = conversationContext + '\nCurrent question: ' + query;
-          logger.info(`🔗 Providing conversation context to AI for session: ${sessionId}`);
+          prompt = conversationContext + "\nCurrent question: " + query;
+          logger.info(
+            `🔗 Providing conversation context to AI for session: ${sessionId}`
+          );
         }
       }
 
@@ -269,10 +273,11 @@ class AIService {
 
       const transcription: any = await this.openai.audio.transcriptions.create({
         file: audioFile,
-        prompt: "",
-        model: "gpt-4o-mini-transcribe",
+        model: "gpt-4o-transcribe",
+        prompt:
+          "The speaker is a Nigerian farmer speaking Yoruba,Igbo or Hausa. Transcribe clearly with correct tones ensure you correctly get what they say if possible.",
         response_format: "json",
-        temperature: 0.2,
+        temperature: 0.0,
       });
 
       return transcription.text || transcription.words.text || "";
