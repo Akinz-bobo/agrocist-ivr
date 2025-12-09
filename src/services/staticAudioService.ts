@@ -312,6 +312,11 @@ class StaticAudioService {
     language: "en" | "yo" | "ha" | "ig",
     textKey: keyof StaticAudioTexts
   ): string | null {
+    // Special case for postAIMenu_en - use renamed file
+    if (language === "en" && textKey === "postAIMenu") {
+      return "https://res.cloudinary.com/dk9oamdmg/video/upload/v1/agrocist-ivr/audio/static/spitch_static_postAIMenu_en_new_changed.mp3";
+    }
+    
     const cacheKey = `${language}_${textKey}`;
     return this.staticAudioUrls.get(cacheKey) || null;
   }
