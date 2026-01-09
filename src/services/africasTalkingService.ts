@@ -156,6 +156,12 @@ class AfricasTalkingService {
   }
 
   async generateDirectRecordingResponse(language: string): Promise<string> {
+    // Route yo, ha, ig languages directly to agents
+    if (language === "yo" || language === "ha" || language === "ig") {
+      return this.generateAgentTransferResponse(language as "en" | "yo" | "ha" | "ig");
+    }
+
+    // Only English continues with recording
     const audioUrl = staticAudioService.getStaticAudioUrl(
       language as "en" | "yo" | "ha" | "ig",
       "directRecording"
@@ -184,6 +190,35 @@ class AfricasTalkingService {
   }/voice/recording">
     <Say>${this.escapeXML(prompt)}</Say>
   </Record>
+</Response>`;
+  }
+
+  private async generateAgentTransferResponse(
+    language: "en" | "yo" | "ha" | "ig"
+  ): Promise<string> {
+    const agentNumbers = {
+      yo: process.env.YO_AGENT_PHONE || config.agent.phoneNumber,
+      ha: process.env.HA_AGENT_PHONE || config.agent.phoneNumber,
+      ig: process.env.IG_AGENT_PHONE || config.agent.phoneNumber,
+      en: config.agent.phoneNumber,
+    };
+
+    const audioUrl = staticAudioService.getStaticAudioUrl(language, "transfer");
+
+    if (audioUrl) {
+      return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play url="${stripQueryParams(audioUrl)}"/>
+  <Dial phoneNumbers="${agentNumbers[language]}" record="true" sequential="true" callbackUrl="${config.webhook.baseUrl}/voice/transfer"/>
+</Response>`;
+    }
+
+    // Fallback to text if static audio not available
+    const transferText = staticAudioService.getStaticText(language, "transfer");
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>${this.escapeXML(transferText)}</Say>
+  <Dial phoneNumbers="${agentNumbers[language]}" record="true" sequential="true" callbackUrl="${config.webhook.baseUrl}/voice/transfer"/>
 </Response>`;
   }
 
