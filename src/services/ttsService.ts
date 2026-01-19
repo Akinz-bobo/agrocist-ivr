@@ -40,12 +40,13 @@ class TTSService {
     text: string,
     language: "en" | "yo" | "ha" | "ig",
     phoneNumber: string,
-    sessionId?: string
+    sessionId?: string,
   ): Promise<TTSResponse> {
     try {
       // Use ElevenLabs for English, Spitch for other languages
       if (language === "en") {
-        return await this.generateWithElevenLabs(text, language, sessionId);
+        // return await this.generateWithElevenLabs(text, language, sessionId);
+        return await this.generateWithSpitch(text, language, sessionId);
       } else {
         return await this.generateWithSpitch(text, language, sessionId);
       }
@@ -58,10 +59,11 @@ class TTSService {
   private async generateWithElevenLabs(
     text: string,
     language: "en" | "yo" | "ha" | "ig",
-    sessionId?: string
+    sessionId?: string,
   ): Promise<TTSResponse> {
     try {
-      const ElevenLabsClient = (await import("@elevenlabs/elevenlabs-js")).ElevenLabsClient;
+      const ElevenLabsClient = (await import("@elevenlabs/elevenlabs-js"))
+        .ElevenLabsClient;
       const client = new ElevenLabsClient({
         apiKey: process.env.ELEVENLABS_API_KEY,
       });
@@ -78,7 +80,7 @@ class TTSService {
           text,
           modelId: "eleven_multilingual_v2",
           outputFormat: "mp3_44100_128",
-        }
+        },
       );
 
       // Convert ReadableStream to Buffer
@@ -99,7 +101,7 @@ class TTSService {
             filename: `elevenlabs_${Date.now()}_${
               sessionId?.slice(-8) || "unknown"
             }.mp3`,
-          }
+          },
         );
         audioUrl =
           uploadResult?.secureUrl ||
@@ -137,7 +139,7 @@ class TTSService {
   private async generateWithSpitch(
     text: string,
     language: "en" | "yo" | "ha" | "ig",
-    sessionId?: string
+    sessionId?: string,
   ): Promise<TTSResponse> {
     try {
       type SpitchVoice =
@@ -203,7 +205,7 @@ class TTSService {
             filename: `spitch_${Date.now()}_${
               sessionId?.slice(-8) || "unknown"
             }.mp3`,
-          }
+          },
         );
         audioUrl =
           uploadResult?.secureUrl ||
