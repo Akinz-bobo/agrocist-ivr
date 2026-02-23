@@ -7,6 +7,7 @@ import logger from "../utils/logger";
 import config from "../config";
 import engagementService from "../services/engagementService";
 import { IVRState, TerminationReason } from "../models/EngagementMetrics";
+import { getAgentForCaller } from "../config/callerAgentMapping";
 
 class VoiceController {
   handleIncomingCall = async (req: Request, res: Response): Promise<void> => {
@@ -91,9 +92,11 @@ class VoiceController {
         );
       }
 
-      // Generate welcome response
-      const welcomeXML = await africasTalkingService.generateWelcomeResponse();
+      // Generate welcome response with agent check
+      const welcomeXML = await this.generateWelcomeWithAgentCheck(callerNumber);
 
+      logger.info(`🎵 Sending welcome XML to caller`);
+      logger.debug(`Welcome XML: ${welcomeXML}`);
       res.set("Content-Type", "application/xml");
       res.send(welcomeXML);
     } catch (error) {
@@ -1401,6 +1404,36 @@ class VoiceController {
     // Default to user hangup if duration is reasonable
     return TerminationReason.USER_HANGUP;
   }
+
+  /**
+   * Generate welcome with agent check
+   */
+  private async generateWelcomeWithAgentCheck(
+    callerNumber: string
+  ): Promise<string> {
+    // Check for agent mapping
+    logger.info(`🔍 Checking agent mapping for caller: ${callerNumber}`);
+    const agentNumber = await getAgentForCaller(callerNumber);
+    logger.info(`🔍 Agent lookup result: ${agentNumber || 'No agent found'}`);
+
+    if (agentNumber) {
+      logger.info(
+        `📞 Routing caller: ${callerNumber} to agent ${agentNumber}`
+      );
+      return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="woman">Please wait while we connect you to your agent.</Say>
+  <Dial phoneNumbers="${agentNumber}" record="true" />
+</Response>`;
+    }
+
+    logger.info(`ℹ️ No agent found, proceeding to normal IVR flow`);
+    return await africasTalkingService.generateWelcomeResponse();
+  }
+
+  /**
+   * Handle dial callback - when agent is busy or unavailable
+   */
 }
 
 export default new VoiceController();

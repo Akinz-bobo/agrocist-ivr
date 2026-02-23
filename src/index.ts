@@ -4,10 +4,13 @@ import cors from 'cors';
 import config from './config';
 import logger from './utils/logger';
 import database from './utils/database';
+import { connectRedis } from './config/redis';
 import voiceRoutes from './routes/voice';
 import analyticsRoutes from './routes/analytics';
 import ivrRoutes from './routes/ivr';
+import agentRoutes from './routes/agent';
 import staticAudioService from './services/staticAudioService';
+import { startAgentFarmerMappingSync } from './jobs/agentFarmerMappingJob';
 
 const app = express();
 
@@ -36,6 +39,7 @@ app.use((req, res, next) => {
 app.use('/voice', voiceRoutes);
 app.use('/analytics', analyticsRoutes);
 app.use('/ivr', ivrRoutes);
+app.use('/agent', agentRoutes);
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
@@ -135,6 +139,15 @@ const server = app.listen(config.port, async () => {
     logger.warn('⚠️ Continuing without database - engagement metrics will not be saved');
   }
 
+  // Connect to Redis
+  try {
+    logger.info('🔴 Connecting to Redis...');
+    await connectRedis();
+  } catch (error) {
+    logger.error('❌ Redis connection failed:', error);
+    logger.warn('⚠️ Continuing without Redis - agent lookups will be slower');
+  }
+
   // Pre-generate static audio files for instant responses
   logger.info('🎵 Starting static audio pre-generation in background...');
   staticAudioService.preGenerateStaticAudio().then(() => {
@@ -142,6 +155,9 @@ const server = app.listen(config.port, async () => {
   }).catch((error) => {
     logger.warn('⚠️ Audio initialization failed, but system will continue:', error);
   });
+
+  // Start agent-farmer mapping sync job
+  startAgentFarmerMappingSync();
 });
 
 export default app;
