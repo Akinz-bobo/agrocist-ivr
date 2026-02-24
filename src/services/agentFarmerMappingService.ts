@@ -18,8 +18,18 @@ class AgentFarmerMappingService {
       await AgentFarmerMapping.deleteMany({});
       logger.info('🗑️ Cleared existing mappings');
       
+      // Clear Redis cache
+      const keys = await redisClient.keys(`${this.CACHE_PREFIX}*`);
+      if (keys.length > 0) {
+        await redisClient.del(keys);
+        logger.info(`🗑️ Cleared ${keys.length} Redis cache entries`);
+      }
+      
       const User = mongoose.model('User');
       const agents = await User.find({ role: 'agent' }).select('phone firstName lastName').lean();
+      
+      const pipeline = redisClient.multi();
+      let totalFarmers = 0;
       
       for (const agent of agents) {
         if (!agent.phone) continue;
@@ -43,14 +53,17 @@ class AgentFarmerMappingService {
           lastSynced: new Date()
         });
 
-        // Cache in Redis
-        if (farmerData.length > 0) {
-          const pipeline = redisClient.multi();
-          for (const farmer of farmerData) {
-            pipeline.setEx(`${this.CACHE_PREFIX}${farmer.phone}`, this.CACHE_TTL, agent.phone);
-          }
-          await pipeline.exec();
+        // Add to Redis pipeline
+        for (const farmer of farmerData) {
+          pipeline.setEx(`${this.CACHE_PREFIX}${farmer.phone}`, this.CACHE_TTL, agent.phone);
+          totalFarmers++;
         }
+      }
+      
+      // Execute all Redis updates at once
+      if (totalFarmers > 0) {
+        await pipeline.exec();
+        logger.info(`💾 Cached ${totalFarmers} farmer-agent mappings in Redis`);
       }
       
       logger.info(`✅ Synced ${agents.length} agent-farmer mappings`);
