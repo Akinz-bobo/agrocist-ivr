@@ -8,6 +8,7 @@ import config from "../config";
 import engagementService from "../services/engagementService";
 import { IVRState, TerminationReason } from "../models/EngagementMetrics";
 import { getAgentForCaller } from "../config/callerAgentMapping";
+import agentCallLogService from "../services/agentCallLogService";
 
 class VoiceController {
   handleIncomingCall = async (req: Request, res: Response): Promise<void> => {
@@ -93,7 +94,7 @@ class VoiceController {
       }
 
       // Generate welcome response with agent check
-      const welcomeXML = await this.generateWelcomeWithAgentCheck(callerNumber);
+      const welcomeXML = await this.generateWelcomeWithAgentCheck(callerNumber, sessionId);
 
       logger.info(`🎵 Sending welcome XML to caller`);
       logger.debug(`Welcome XML: ${welcomeXML}`);
@@ -1409,7 +1410,8 @@ class VoiceController {
    * Generate welcome with agent check
    */
   private async generateWelcomeWithAgentCheck(
-    callerNumber: string
+    callerNumber: string,
+    sessionId: string
   ): Promise<string> {
     // Check for agent mapping
     logger.info(`🔍 Checking agent mapping for caller: ${callerNumber}`);
@@ -1420,6 +1422,12 @@ class VoiceController {
       logger.info(
         `📞 Routing caller: ${callerNumber} to agent ${agentNumber}`
       );
+      
+      // Log the call
+      agentCallLogService.logCall(agentNumber, callerNumber, sessionId).catch(err =>
+        logger.error('Failed to log call:', err)
+      );
+      
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="woman">Please wait while we connect you to your agent.</Say>
