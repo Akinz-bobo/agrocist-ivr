@@ -14,6 +14,8 @@ const redisClient = createClient({
   },
 });
 
+export const isRedisReady = (): boolean => redisClient.isReady;
+
 redisClient.on("error", (err: Error) =>
   logger.error("Redis Client Error:", err),
 );

@@ -1,6 +1,9 @@
 import axios from 'axios';
+import https from 'https';
 import cloudinaryService from './cloudinaryService';
 import logger from '../utils/logger';
+
+const atInsecureAgent = new https.Agent({ rejectUnauthorized: false });
 
 class AudioUploadService {
   /**
@@ -9,9 +12,11 @@ class AudioUploadService {
   async uploadUserRecording(recordingUrl: string, sessionId: string): Promise<string | null> {
     try {
       // Download the audio file from Africa's Talking
+      const isATInternal = recordingUrl.includes('.at-internal.com');
       const response = await axios.get(recordingUrl, {
         responseType: 'arraybuffer',
-        timeout: 30000
+        timeout: 30000,
+        ...(isATInternal && { httpsAgent: atInsecureAgent })
       });
       
       const audioBuffer = Buffer.from(response.data);

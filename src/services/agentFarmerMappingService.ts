@@ -1,7 +1,7 @@
 import AgentFarmerMapping from "../models/AgentFarmerMapping";
 import logger from "../utils/logger";
 import mongoose from "mongoose";
-import redisClient from "../config/redis";
+import redisClient, { isRedisReady } from "../config/redis";
 
 interface SyncMetrics {
   startTime: Date;
@@ -33,6 +33,15 @@ class AgentFarmerMappingService {
     };
 
     // Acquire distributed lock to prevent concurrent syncs
+    if (!isRedisReady()) {
+      const error = 'Redis not connected, skipping sync';
+      logger.warn(`⚠️ ${error}`);
+      metrics.errors.push(error);
+      metrics.endTime = new Date();
+      metrics.duration = metrics.endTime.getTime() - metrics.startTime.getTime();
+      return metrics;
+    }
+
     const lockAcquired = await redisClient.set(
       this.SYNC_LOCK_KEY,
       Date.now().toString(),
@@ -186,11 +195,13 @@ class AgentFarmerMappingService {
     try {
       const normalized = this.normalizePhone(farmerPhone);
       
-      // Try Redis with normalized number
-      const cached = await redisClient.get(`${this.CACHE_PREFIX}${normalized}`);
-      if (cached) {
-        logger.debug(`Cache hit for farmer: ${this.sanitizePhone(farmerPhone)}`);
-        return cached;
+      // Try Redis with normalized number (only if connected)
+      if (isRedisReady()) {
+        const cached = await redisClient.get(`${this.CACHE_PREFIX}${normalized}`);
+        if (cached) {
+          logger.debug(`Cache hit for farmer: ${this.sanitizePhone(farmerPhone)}`);
+          return cached;
+        }
       }
 
       // Fallback to MongoDB - try both formats
@@ -201,7 +212,7 @@ class AgentFarmerMappingService {
       
       const agentPhone = mapping?.agentPhone || null;
 
-      if (agentPhone) {
+      if (agentPhone && isRedisReady()) {
         await redisClient.setEx(
           `${this.CACHE_PREFIX}${normalized}`,
           this.CACHE_TTL,

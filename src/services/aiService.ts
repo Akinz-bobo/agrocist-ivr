@@ -4,6 +4,9 @@ import logger from "../utils/logger";
 import { IVRResponse } from "../types";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import { removeTextFormatting } from "../utils/textFormater";
+import https from "https";
+
+const atInsecureAgent = new https.Agent({ rejectUnauthorized: false });
 
 export enum SupportedLanguage {
   ENGLISH = "en",
@@ -226,8 +229,10 @@ class AIService {
       const axios = (await import("axios")).default;
 
       // Download audio file as buffer
+      const isATInternal = audioUrl.includes('.at-internal.com');
       const audioResponse = await axios.get(audioUrl, {
         responseType: "arraybuffer",
+        ...(isATInternal && { httpsAgent: atInsecureAgent }),
       });
       const audioBlob = new Blob([audioResponse.data], {
         type: "audio/mp3",
@@ -262,8 +267,10 @@ class AIService {
       const axios = (await import("axios")).default;
 
       // Download audio file as buffer first
+      const isATInternal = audioUrl.includes('.at-internal.com');
       const audioResponse = await axios.get(audioUrl, {
         responseType: "arraybuffer",
+        ...(isATInternal && { httpsAgent: atInsecureAgent }),
       });
       const audioBuffer = Buffer.from(audioResponse.data);
       const audioBlob = new Blob([audioBuffer], { type: "audio/mp3" });
