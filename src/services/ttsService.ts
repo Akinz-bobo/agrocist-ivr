@@ -182,17 +182,44 @@ class TTSService {
         sessionId,
       });
 
-      const response = await this.client.speech.generate({
-        text,
-        language,
-        voice: selectedVoice,
-        format: "mp3",
-        model: "legacy",
-      });
+      // Retry up to 2 times on socket/network errors
+      const maxRetries = 2;
+      let lastError: any;
+      let audioBuffer: Buffer | null = null;
 
-      const blob = await response.blob();
-      const arrayBuffer = await blob.arrayBuffer();
-      const audioBuffer = Buffer.from(arrayBuffer);
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const response = await this.client.speech.generate({
+            text,
+            language,
+            voice: selectedVoice,
+            format: "mp3",
+            model: "legacy",
+          });
+
+          const blob = await response.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          audioBuffer = Buffer.from(arrayBuffer);
+          break;
+        } catch (err: any) {
+          lastError = err;
+          const isRetryable =
+            err?.cause?.code === "UND_ERR_SOCKET" ||
+            err?.message?.includes("terminated") ||
+            err?.message?.includes("ECONNRESET");
+          if (isRetryable && attempt < maxRetries) {
+            const delay = (attempt + 1) * 500;
+            logger.warn(
+              `Spitch TTS attempt ${attempt + 1} failed (${err?.cause?.code || err?.message}), retrying in ${delay}ms...`,
+            );
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+          throw err;
+        }
+      }
+
+      if (!audioBuffer) throw lastError;
 
       // Upload to Cloudinary as dynamic audio
       let audioUrl: string;
