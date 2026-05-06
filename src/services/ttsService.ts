@@ -8,14 +8,20 @@ export interface TTSOptions {
   language: "en" | "yo" | "ha" | "ig";
 }
 
-enum SupportedLanguage {
-  ENGLISH = "en",
-  YORUBA = "yo",
-  HAUSA = "ha",
-  IGBO = "ig",
+// Spitch voice names mapped to each supported language
+const VOICE_MAP: Record<string, string> = {
+  en: "john",
+  ha: "amina",
+  ig: "amara",
+  yo: "sade",
+};
+
+// Rough estimate: 10 characters ≈ 1 second of speech
+function estimateAudioDuration(text: string): number {
+  return Math.ceil(text.length / 10);
 }
 
-interface TTSResponse {
+export interface TTSResponse {
   audioUrl: string;
   duration: number;
   language: string;
@@ -23,248 +29,127 @@ interface TTSResponse {
   provider: string;
 }
 
-function estimateAudioDuration(text: string): number {
-  return Math.ceil(text.length / 10); // Rough estimate: 10 chars per second
-}
-
 class TTSService {
   private client: Spitch;
 
   constructor() {
-    this.client = new Spitch({
-      apiKey: config.spitch.apiKey,
-    });
+    this.client = new Spitch({ apiKey: config.spitch.apiKey });
   }
 
+  /**
+   * Generate TTS audio for an AI response and return a hosted URL.
+   * Uses Spitch for all languages. Falls back to Cloudinary → local file → base64.
+   */
   async generateAIAudio(
     text: string,
     language: "en" | "yo" | "ha" | "ig",
     phoneNumber: string,
-    sessionId?: string,
+    sessionId?: string
   ): Promise<TTSResponse> {
-    try {
-      // Use ElevenLabs for English, Spitch for other languages
-      if (language === "en") {
-        // return await this.generateWithElevenLabs(text, language, sessionId);
-        return await this.generateWithSpitch(text, language, sessionId);
-      } else {
-        return await this.generateWithSpitch(text, language, sessionId);
-      }
-    } catch (error) {
-      logger.error("TTS generation failed", { error, sessionId, language });
-      throw error;
-    }
+    return this.generateWithSpitch(text, language, sessionId);
   }
 
-  private async generateWithElevenLabs(
+  /**
+   * Generate audio via the Spitch TTS API.
+   * Retries up to 2 times on transient socket/network errors.
+   * Uploads the resulting buffer to Cloudinary (or local storage as fallback).
+   */
+  async generateWithSpitch(
     text: string,
     language: "en" | "yo" | "ha" | "ig",
-    sessionId?: string,
+    sessionId?: string
   ): Promise<TTSResponse> {
-    try {
-      const ElevenLabsClient = (await import("@elevenlabs/elevenlabs-js"))
-        .ElevenLabsClient;
-      const client = new ElevenLabsClient({
-        apiKey: process.env.ELEVENLABS_API_KEY,
-      });
+    const voice = VOICE_MAP[language] ?? "john";
 
-      logger.info("ElevenLabs TTS request", {
-        text,
-        language,
-        sessionId,
-      });
+    logger.info("Spitch TTS request", { text, language, voice, sessionId });
 
-      const audioStream = await client.textToSpeech.convert(
-        process.env.ELEVENLABS_VOICE_ID_EN || "V0PuVTP8lJVnkKNavZmc",
-        {
-          text,
-          modelId: "eleven_multilingual_v2",
-          outputFormat: "mp3_44100_128",
-        },
-      );
+    // Retry logic for transient network errors
+    const MAX_RETRIES = 2;
+    let lastError: unknown;
+    let audioBuffer: Buffer | null = null;
 
-      // Convert ReadableStream to Buffer
-      const chunks: Buffer[] = [];
-      for await (const chunk of audioStream) {
-        chunks.push(Buffer.from(chunk));
-      }
-      const audioBuffer = Buffer.concat(chunks);
-
-      // Upload to Cloudinary as dynamic audio
-      let audioUrl: string;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const uploadResult = await cloudinaryService.uploadAudioBuffer(
-          audioBuffer,
-          {
-            type: "dynamic",
-            language,
-            filename: `elevenlabs_${Date.now()}_${
-              sessionId?.slice(-8) || "unknown"
-            }.mp3`,
-          },
-        );
-        audioUrl =
-          uploadResult?.secureUrl ||
-          `data:audio/mpeg;base64,${audioBuffer.toString("base64")}`;
-      } catch (uploadError) {
-        logger.warn("Cloudinary upload failed, using local file fallback", {
-          uploadError,
-          sessionId,
-        });
-        const localUrl = await localAudioService.saveAudioBuffer(audioBuffer, {
-          type: "dynamic",
+        const response = await this.client.speech.generate({
+          text,
           language,
-          filename: `elevenlabs_fallback_${Date.now()}_${
-            sessionId?.slice(-8) || "unknown"
-          }.mp3`,
+          voice: voice as any,
+          format: "mp3",
+          model: "legacy",
         });
-        audioUrl = localUrl
-          ? `${config.webhook.baseUrl}${localUrl}`
-          : `data:audio/mpeg;base64,${audioBuffer.toString("base64")}`;
-      }
 
-      return {
-        audioUrl,
-        duration: estimateAudioDuration(text),
-        language,
-        processingTime: 0,
-        provider: "elevenlabs",
-      };
-    } catch (error) {
-      logger.error("ElevenLabs TTS generation failed", { error, sessionId });
-      throw error;
-    }
-  }
+        const blob = await response.blob();
+        audioBuffer = Buffer.from(await blob.arrayBuffer());
+        break; // success — exit retry loop
+      } catch (err: any) {
+        lastError = err;
+        const isRetryable =
+          err?.cause?.code === "UND_ERR_SOCKET" ||
+          err?.message?.includes("terminated") ||
+          err?.message?.includes("ECONNRESET");
 
-  private async generateWithSpitch(
-    text: string,
-    language: "en" | "yo" | "ha" | "ig",
-    sessionId?: string,
-  ): Promise<TTSResponse> {
-    try {
-      type SpitchVoice =
-        | "amina"
-        | "ebuka"
-        | "femi"
-        | "sade"
-        | "segun"
-        | "funmi"
-        | "aliyu"
-        | "hasan"
-        | "zainab"
-        | "john"
-        | "jude"
-        | "lina"
-        | "lucy"
-        | "henry"
-        | "kani"
-        | "ngozi"
-        | "amara"
-        | "obinna"
-        | "hana"
-        | "selam"
-        | "tena"
-        | "tesfaye";
-
-      const voiceMap: Record<string, SpitchVoice> = {
-        en: "john",
-        ha: "amina",
-        ig: "amara",
-        yo: "sade",
-      };
-
-      const selectedVoice = voiceMap[language] || "john";
-
-      logger.info("Spitch TTS request", {
-        text,
-        language,
-        voice: selectedVoice,
-        sessionId,
-      });
-
-      // Retry up to 2 times on socket/network errors
-      const maxRetries = 2;
-      let lastError: any;
-      let audioBuffer: Buffer | null = null;
-
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-          const response = await this.client.speech.generate({
-            text,
-            language,
-            voice: selectedVoice,
-            format: "mp3",
-            model: "legacy",
-          });
-
-          const blob = await response.blob();
-          const arrayBuffer = await blob.arrayBuffer();
-          audioBuffer = Buffer.from(arrayBuffer);
-          break;
-        } catch (err: any) {
-          lastError = err;
-          const isRetryable =
-            err?.cause?.code === "UND_ERR_SOCKET" ||
-            err?.message?.includes("terminated") ||
-            err?.message?.includes("ECONNRESET");
-          if (isRetryable && attempt < maxRetries) {
-            const delay = (attempt + 1) * 500;
-            logger.warn(
-              `Spitch TTS attempt ${attempt + 1} failed (${err?.cause?.code || err?.message}), retrying in ${delay}ms...`,
-            );
-            await new Promise((r) => setTimeout(r, delay));
-            continue;
-          }
+        if (isRetryable && attempt < MAX_RETRIES) {
+          const delay = (attempt + 1) * 500;
+          logger.warn(
+            `Spitch attempt ${attempt + 1} failed (${err?.cause?.code ?? err?.message}), retrying in ${delay}ms...`
+          );
+          await new Promise((r) => setTimeout(r, delay));
+        } else {
           throw err;
         }
       }
-
-      if (!audioBuffer) throw lastError;
-
-      // Upload to Cloudinary as dynamic audio
-      let audioUrl: string;
-      try {
-        const uploadResult = await cloudinaryService.uploadAudioBuffer(
-          audioBuffer,
-          {
-            type: "dynamic",
-            language,
-            filename: `spitch_${Date.now()}_${
-              sessionId?.slice(-8) || "unknown"
-            }.mp3`,
-          },
-        );
-        audioUrl =
-          uploadResult?.secureUrl ||
-          `data:audio/mpeg;base64,${audioBuffer.toString("base64")}`;
-      } catch (uploadError) {
-        logger.warn("Cloudinary upload failed, using local file fallback", {
-          uploadError,
-          sessionId,
-        });
-        const localUrl = await localAudioService.saveAudioBuffer(audioBuffer, {
-          type: "dynamic",
-          language,
-          filename: `spitch_fallback_${Date.now()}_${
-            sessionId?.slice(-8) || "unknown"
-          }.mp3`,
-        });
-        audioUrl = localUrl
-          ? `${config.webhook.baseUrl}${localUrl}`
-          : `data:audio/mpeg;base64,${audioBuffer.toString("base64")}`;
-      }
-
-      return {
-        audioUrl,
-        duration: estimateAudioDuration(text),
-        language,
-        processingTime: 0,
-        provider: "spitch",
-      };
-    } catch (error) {
-      logger.error("Spitch TTS generation failed", { error, sessionId });
-      throw error;
     }
+
+    if (!audioBuffer) throw lastError;
+
+    // Upload audio buffer — Cloudinary preferred, local filesystem as fallback
+    const audioUrl = await this.uploadAudioBuffer(audioBuffer, language, sessionId);
+
+    return {
+      audioUrl,
+      duration: estimateAudioDuration(text),
+      language,
+      processingTime: 0,
+      provider: "spitch",
+    };
+  }
+
+  /**
+   * Upload an audio buffer to Cloudinary, falling back to local storage,
+   * and finally to a base64 data URL if both fail.
+   */
+  private async uploadAudioBuffer(
+    buffer: Buffer,
+    language: string,
+    sessionId?: string
+  ): Promise<string> {
+    const filename = `spitch_${Date.now()}_${sessionId?.slice(-8) ?? "unknown"}.mp3`;
+
+    try {
+      const result = await cloudinaryService.uploadAudioBuffer(buffer, {
+        type: "dynamic",
+        language,
+        filename,
+      });
+      if (result?.secureUrl) return result.secureUrl;
+    } catch (uploadError) {
+      logger.warn("Cloudinary upload failed, trying local fallback", { uploadError, sessionId });
+    }
+
+    // Local filesystem fallback
+    try {
+      const localUrl = await localAudioService.saveAudioBuffer(buffer, {
+        type: "dynamic",
+        language,
+        filename: `spitch_fallback_${filename}`,
+      });
+      if (localUrl) return `${config.webhook.baseUrl}${localUrl}`;
+    } catch {
+      // ignore — fall through to base64
+    }
+
+    // Last resort: inline base64 data URL
+    return `data:audio/mpeg;base64,${buffer.toString("base64")}`;
   }
 }
 

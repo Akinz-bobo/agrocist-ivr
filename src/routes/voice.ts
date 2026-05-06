@@ -10,7 +10,10 @@ router.use(logRequest);
 // Main voice webhook endpoint for incoming calls (no validation to ensure compatibility)
 router.post('/', voiceController.handleIncomingCall);
 
-// Language selection endpoint
+// Gate menu endpoint — caller chooses AI assistant (1) or human agent (2)
+router.post('/gate', voiceController.handleGate);
+
+// Language selection endpoint (reached after choosing the AI path at the gate)
 router.post('/language', voiceController.handleLanguageSelection);
 
 // Language timeout endpoint (for handling timeout on language selection)

@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+﻿import { Request, Response } from "express";
 import { AfricasTalkingWebhook } from "../types";
 import africasTalkingService from "../services/africasTalkingService";
 import aiService from "../services/aiService";
@@ -9,341 +9,259 @@ import engagementService from "../services/engagementService";
 import { IVRState, TerminationReason } from "../models/EngagementMetrics";
 import { getAgentForCaller } from "../config/callerAgentMapping";
 import agentCallLogService from "../services/agentCallLogService";
+import staticAudioService from "../services/staticAudioService";
+import { StaticAudioKey } from "../services/staticAudioService";
+import User from "../models/User";
 
+/**
+ * Handles all Africa's Talking voice webhooks for the Agrocist IVR system.
+ *
+ * Call flow:
+ *   1. handleIncomingCall      — creates session, checks agent mapping, plays welcome gate
+ *   1b. handleGate             — caller chooses AI (1) or human agent (2)
+ *   2. handleLanguageSelection — stores language choice, routes to recording (AI path only)
+ *   3. handleLanguageTimeout   — second-chance handler if no input on language menu
+ *   4. handleRecording         — receives voice recording, starts background AI processing
+ *   5. handleAIProcessing      — polls for AI readiness, plays response when ready
+ *   6. handlePostAI            — handles post-response menu (follow-up / agent / end)
+ */
 class VoiceController {
+
+  // ─── 1. Incoming call ──────────────────────────────────────────────────────
+
   handleIncomingCall = async (req: Request, res: Response): Promise<void> => {
     try {
-      const webhookData = req.body as any;
+      const { sessionId, isActive, callerNumber, durationInSeconds = "0", callEndReason } = req.body;
 
-      const {
-        sessionId,
-        isActive,
-        callerNumber,
-        durationInSeconds = "0",
-        callEndReason,
-      } = webhookData;
+      logger.info("=== INCOMING CALL ===", { sessionId, callerNumber, isActive });
 
-      logger.info(`=== INCOMING CALL WEBHOOK ===`, webhookData);
-
+      // isActive === "0" means the call has ended — flush engagement data and return
       if (isActive === "0") {
-        logger.info(`❌ Call ended: ${sessionId} (${durationInSeconds}s)`);
-
-        // Flush buffered engagement data to database when call ends
-        if (sessionId && callerNumber) {
-          const session = sessionManager.getSession(sessionId);
-          if (session && session.engagementBuffer) {
-            const terminationReason = this.determineTerminationReason(
-              callEndReason,
-              durationInSeconds
-            );
-            const completed =
-              terminationReason === TerminationReason.COMPLETED_SUCCESSFULLY;
-
-            // Set termination info
-            sessionManager.setTerminationInfo(
-              sessionId,
-              terminationReason,
-              completed
-            );
-            sessionManager.bufferStateTransition(
-              sessionId,
-              session.engagementBuffer.currentState || IVRState.CALL_ENDED,
-              IVRState.CALL_ENDED
-            );
-
-            // Call summary
-            const interactions =
-              session.engagementBuffer.aiInteractionsDetailed || [];
-            logger.info(
-              `📋 Call Summary: ${sessionId} | ${callerNumber} | ${durationInSeconds}s | ${interactions.length} interactions`
-            );
-
-            // Flush to database in background (non-blocking)
-
-            engagementService
-              .flushEngagementToDatabase(
-                sessionId,
-                session.engagementBuffer,
-                callerNumber,
-                session.startTime
-              )
-              .catch((error) =>
-                logger.error("Failed to flush engagement data:", error)
-              );
-          }
-        }
-
+        logger.info(`Call ended: ${sessionId} (${durationInSeconds}s)`);
+        await this.flushOnCallEnd(sessionId, callerNumber, callEndReason, durationInSeconds);
         res.status(200).send("");
         return;
       }
 
-      // Create session for the incoming call
+      // New call — create session and track initial state
       if (sessionId && callerNumber) {
         sessionManager.createSession(sessionId, callerNumber);
-        // Store engagement metadata and track state
         sessionManager.setEngagementMetadata(sessionId, {
           callId: sessionId,
           userAgent: req.get("User-Agent"),
           ipAddress: req.ip,
         });
-        sessionManager.bufferStateTransition(
-          sessionId,
-          IVRState.CALL_INITIATED,
-          IVRState.WELCOME
-        );
+        sessionManager.bufferStateTransition(sessionId, IVRState.CALL_INITIATED, IVRState.WELCOME);
       }
 
-      // Generate welcome response with agent check
       const welcomeXML = await this.generateWelcomeWithAgentCheck(callerNumber, sessionId);
-
-      logger.info(`🎵 Sending welcome XML to caller`);
-      logger.debug(`Welcome XML: ${welcomeXML}`);
       res.set("Content-Type", "application/xml");
       res.send(welcomeXML);
     } catch (error) {
-      logger.error("💥 ERROR handling incoming call:", error);
+      logger.error("Error handling incoming call:", error);
       res.set("Content-Type", "application/xml");
       res.send(await africasTalkingService.generateErrorResponse());
     }
   };
 
-  handleLanguageSelection = async (
-    req: Request,
-    res: Response
-  ): Promise<void> => {
+
+  // ─── 1b. Gate menu (AI vs human agent) ────────────────────────────────────
+
+  /**
+   * Handles the caller's response to the gate menu:
+   *   1 → AI assistant path (proceed to language selection)
+   *   2 → Human agent (direct transfer)
+   *   timeout / invalid → replay the gate menu (one retry, then end call)
+   */
+  handleGate = async (req: Request, res: Response): Promise<void> => {
     try {
       const webhookData = req.body as AfricasTalkingWebhook;
       const { sessionId, isActive, dtmfDigits } = webhookData;
 
-      logger.info(
-        `🌍 Language: ${sessionId} | DTMF: ${dtmfDigits} | Active: ${isActive}`
-      );
+      logger.info(`Gate: ${sessionId} | DTMF: ${dtmfDigits} | Active: ${isActive}`);
 
-      // If call is not active, end call
       if (isActive === "0") {
-        // Flush buffered data when call ends in language selection
-        const session = sessionManager.getSession(sessionId);
-        if (session && session.engagementBuffer) {
-          sessionManager.setTerminationInfo(
-            sessionId,
-            TerminationReason.USER_HANGUP,
-            false
-          );
-          sessionManager.bufferStateTransition(
-            sessionId,
-            session.engagementBuffer.currentState ||
-              IVRState.LANGUAGE_SELECTION,
-            IVRState.CALL_ENDED
-          );
-
-          engagementService
-            .flushEngagementToDatabase(
-              sessionId,
-              session.engagementBuffer,
-              session.callerNumber,
-              session.startTime
-            )
-            .catch((error) =>
-              logger.error("Failed to flush engagement data:", error)
-            );
-        }
-
+        await this.flushOnCallEnd(sessionId, webhookData.callerNumber, undefined, "0", IVRState.WELCOME);
         res.status(200).send("");
         return;
       }
 
-      // Handle timeout - no input received
-      if (!dtmfDigits || dtmfDigits.trim() === "") {
-        logger.info(
-          `⏱️ Language selection timeout (no input) for session: ${sessionId}`
-        );
-
-        // Check if this is already a second timeout (to prevent infinite loops)
+      // No input — allow one retry before ending the call
+      if (!dtmfDigits?.trim()) {
         const session = sessionManager.getSession(sessionId);
-        const timeoutCount = session?.context?.timeoutCount || 0;
+        const retryCount = session?.context?.gateRetryCount ?? 0;
 
-        if (timeoutCount >= 1) {
-          // After second timeout, end call gracefully
-          logger.warn(
-            `⏱️ Multiple timeouts detected for session ${sessionId}, ending call`
-          );
-          const goodbyeAudio = await this.generateStaticAudioSay(
-            "goodbye",
-            "en"
-          );
-          const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  ${goodbyeAudio}
-</Response>`;
-
-          sessionManager.setTerminationInfo(
-            sessionId,
-            TerminationReason.TIMEOUT,
-            false
-          );
+        if (retryCount >= 1) {
+          logger.warn(`Gate timeout after retry for ${sessionId}, ending call`);
+          sessionManager.setTerminationInfo(sessionId, TerminationReason.TIMEOUT, false);
+          const goodbyeAudio = await this.staticAudio("goodbye", "en");
           res.set("Content-Type", "application/xml");
-          res.send(responseXML);
+          res.send(`<?xml version="1.0" encoding="UTF-8"?><Response>${goodbyeAudio}</Response>`);
           return;
         }
 
-        // Track timeout count and provide language options again
-        sessionManager.updateSessionContext(sessionId, {
-          timeoutCount: timeoutCount + 1,
-        });
+        sessionManager.updateSessionContext(sessionId, { gateRetryCount: retryCount + 1 });
+        res.set("Content-Type", "application/xml");
+        res.send(await africasTalkingService.generateGateResponse());
+        return;
+      }
 
-        const timeoutAudio = await this.generateStaticAudioSay(
-          "languageTimeout",
-          "en"
-        );
-        const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
+      const choice = africasTalkingService.extractMenuChoice(dtmfDigits ?? "");
+
+      switch (choice) {
+        case 1:
+          // AI path — proceed to language selection
+          logger.info(`Gate: AI path selected for ${sessionId}`);
+          sessionManager.bufferStateTransition(sessionId, IVRState.WELCOME, IVRState.LANGUAGE_SELECTION, dtmfDigits ?? "");
+          res.set("Content-Type", "application/xml");
+          res.send(await africasTalkingService.generateLanguageMenuResponse());
+          break;
+
+        case 2: {
+          // Human agent path — check premium subscription first
+          logger.info(`Gate: Human agent path selected for ${sessionId}`);
+          
+          // Check if user has active premium subscription
+          const hasPremium = await this.checkPremiumSubscription(webhookData.callerNumber);
+          
+          if (!hasPremium) {
+            // Non-premium user — play premium required message and end call
+            logger.info(`Gate: Non-premium user ${webhookData.callerNumber} denied agent access`);
+            sessionManager.setTerminationInfo(sessionId, TerminationReason.COMPLETED_SUCCESSFULLY, false);
+            const premiumAudio = await this.staticAudio("premiumRequired", "en");
+            const goodbyeAudio = await this.staticAudio("goodbye", "en");
+            res.set("Content-Type", "application/xml");
+            res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${premiumAudio}
+  ${goodbyeAudio}
+</Response>`);
+            return;
+          }
+          
+          // Premium user — proceed with agent transfer
+          sessionManager.bufferAgentTransfer(sessionId);
+          sessionManager.bufferStateTransition(sessionId, IVRState.WELCOME, IVRState.HUMAN_AGENT_TRANSFER, dtmfDigits ?? "");
+          res.set("Content-Type", "application/xml");
+          res.send(await africasTalkingService.generateTransferResponse("en"));
+          break;
+        }
+
+        default:
+          // Invalid input — replay the gate menu
+          logger.warn(`Gate: Invalid choice ${choice} for ${sessionId}, replaying menu`);
+          res.set("Content-Type", "application/xml");
+          res.send(await africasTalkingService.generateGateResponse());
+      }
+    } catch (error) {
+      logger.error("Error handling gate:", error);
+      res.set("Content-Type", "application/xml");
+      res.send(await africasTalkingService.generateErrorResponse());
+    }
+  };
+  // ─── 2. Language selection ─────────────────────────────────────────────────
+
+  handleLanguageSelection = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const webhookData = req.body as AfricasTalkingWebhook;
+      const { sessionId, isActive, dtmfDigits } = webhookData;
+
+      logger.info(`Language selection: ${sessionId} | DTMF: ${dtmfDigits} | Active: ${isActive}`);
+
+      if (isActive === "0") {
+        await this.flushOnCallEnd(sessionId, webhookData.callerNumber, undefined, "0", IVRState.LANGUAGE_SELECTION);
+        res.status(200).send("");
+        return;
+      }
+
+      // No input — handle timeout (allow one retry before ending the call)
+      if (!dtmfDigits?.trim()) {
+        const session = sessionManager.getSession(sessionId);
+        const timeoutCount = session?.context?.timeoutCount ?? 0;
+
+        if (timeoutCount >= 1) {
+          // Second timeout — end the call gracefully
+          logger.warn(`Multiple timeouts for ${sessionId}, ending call`);
+          sessionManager.setTerminationInfo(sessionId, TerminationReason.TIMEOUT, false);
+          const goodbyeAudio = await this.staticAudio("goodbye", "en");
+          res.set("Content-Type", "application/xml");
+          res.send(`<?xml version="1.0" encoding="UTF-8"?><Response>${goodbyeAudio}</Response>`);
+          return;
+        }
+
+        // First timeout — replay the language menu with a timeout prompt
+        sessionManager.updateSessionContext(sessionId, { timeoutCount: timeoutCount + 1 });
+        const timeoutAudio = await this.staticAudio("languageTimeout", "en");
+        res.set("Content-Type", "application/xml");
+        res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <GetDigits timeout="10" callbackUrl="${config.webhook.baseUrl}/voice/language-timeout">
     ${timeoutAudio}
   </GetDigits>
   <Redirect>${config.webhook.baseUrl}/voice/end</Redirect>
-</Response>`;
-
-        logger.info(`🎤 SENDING LANGUAGE TIMEOUT RESPONSE:`);
-        logger.info(responseXML);
-        res.set("Content-Type", "application/xml");
-        res.send(responseXML);
+</Response>`);
         return;
       }
 
-      const choice = africasTalkingService.extractMenuChoice(dtmfDigits || "");
-      let responseXML = "";
-      let selectedLanguage = "en";
+      const choice = africasTalkingService.extractMenuChoice(dtmfDigits ?? "");
       const ttsAvailable = africasTalkingService.isTTSAvailable();
+      let responseXML = "";
+      let selectedLanguage = "";
 
-      // If TTS is not available, only allow English (option 1) or end call (option 0)
-      if (
-        !ttsAvailable &&
-        typeof choice === "number" &&
-        ![1, 0].includes(choice)
-      ) {
-        logger.warn(
-          `TTS unavailable, rejecting non-English choice: ${choice} for session: ${sessionId}`
-        );
-        responseXML =
-          await africasTalkingService.generateLanguageMenuResponse();
-      } else {
-        switch (choice) {
-          case 1: // English
-            selectedLanguage = "en";
-            responseXML =
-              await africasTalkingService.generateDirectRecordingResponse("en");
-            break;
-
-          case 2: // Yoruba (only if TTS available)
-            if (ttsAvailable) {
-              selectedLanguage = "yo";
-              responseXML =
-                await africasTalkingService.generateDirectRecordingResponse(
-                  "yo"
-                );
-            } else {
-              logger.warn(
-                `TTS unavailable, rejecting Yoruba choice for session: ${sessionId}`
-              );
-              responseXML =
-                await africasTalkingService.generateLanguageMenuResponse();
-            }
-            break;
-
-          case 3: // Hausa (only if TTS available)
-            if (ttsAvailable) {
-              selectedLanguage = "ha";
-              responseXML =
-                await africasTalkingService.generateDirectRecordingResponse(
-                  "ha"
-                );
-            } else {
-              logger.warn(
-                `TTS unavailable, rejecting Hausa choice for session: ${sessionId}`
-              );
-              responseXML =
-                await africasTalkingService.generateLanguageMenuResponse();
-            }
-            break;
-
-          case 4: // Igbo (only if TTS available)
-            if (ttsAvailable) {
-              selectedLanguage = "ig";
-              responseXML =
-                await africasTalkingService.generateDirectRecordingResponse(
-                  "ig"
-                );
-            } else {
-              logger.warn(
-                `TTS unavailable, rejecting Igbo choice for session: ${sessionId}`
-              );
-              responseXML =
-                await africasTalkingService.generateLanguageMenuResponse();
-            }
-            break;
-
-          case 5: // Repeat menu
-            responseXML =
-              await africasTalkingService.generateLanguageMenuResponse();
-            break;
-
-          case 0: // End call
-            const goodbyeMessage = this.getGoodbyeMessage(
-              selectedLanguage as "en" | "yo" | "ha" | "ig"
-            );
-            const callerNumber = webhookData.callerNumber || "unknown";
-            responseXML = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  ${await this.generateLanguageSpecificSay(
-    goodbyeMessage,
-    selectedLanguage as "en" | "yo" | "ha" | "ig",
-    callerNumber
-  )}
-</Response>`;
-            break;
-
-          default:
-            logger.warn(
-              `Invalid language choice: ${choice} for session: ${sessionId}`
-            );
-            responseXML =
-              await africasTalkingService.generateLanguageMenuResponse();
+      switch (choice) {
+        case 1:
+          selectedLanguage = "en";
+          responseXML = await africasTalkingService.generateDirectRecordingResponse("en");
+          break;
+        case 2:
+          if (ttsAvailable) {
+            selectedLanguage = "yo";
+            responseXML = await africasTalkingService.generateDirectRecordingResponse("yo");
+          } else {
+            responseXML = await africasTalkingService.generateLanguageMenuResponse();
+          }
+          break;
+        case 3:
+          if (ttsAvailable) {
+            selectedLanguage = "ha";
+            responseXML = await africasTalkingService.generateDirectRecordingResponse("ha");
+          } else {
+            responseXML = await africasTalkingService.generateLanguageMenuResponse();
+          }
+          break;
+        case 4:
+          if (ttsAvailable) {
+            selectedLanguage = "ig";
+            responseXML = await africasTalkingService.generateDirectRecordingResponse("ig");
+          } else {
+            responseXML = await africasTalkingService.generateLanguageMenuResponse();
+          }
+          break;
+        case 5:
+          responseXML = await africasTalkingService.generateLanguageMenuResponse();
+          break;
+        case 0: {
+          const goodbye = await this.staticAudio("goodbye", "en");
+          responseXML = `<?xml version="1.0" encoding="UTF-8"?><Response>${goodbye}</Response>`;
+          sessionManager.setTerminationInfo(sessionId, TerminationReason.COMPLETED_SUCCESSFULLY, true);
+          break;
         }
+        default:
+          responseXML = await africasTalkingService.generateLanguageMenuResponse();
       }
 
-      // Store selected language in session if valid choice - both in context AND at session level
-      if (typeof choice === "number" && [1, 2, 3, 4].includes(choice)) {
-        // Update in both places for maximum persistence
+      // Persist language choice if a valid language was selected
+      if (selectedLanguage) {
         const session = sessionManager.getSession(sessionId);
         if (session) {
           session.language = selectedLanguage as "en" | "yo" | "ha" | "ig";
           sessionManager.saveSession(session);
         }
-        sessionManager.updateSessionContext(sessionId, {
-          language: selectedLanguage,
-          timeoutCount: 0, // Reset timeout count on successful selection
-        });
+        sessionManager.updateSessionContext(sessionId, { language: selectedLanguage, timeoutCount: 0 });
         sessionManager.updateSessionMenu(sessionId, "recording");
-        logger.info(`✅ Language ${selectedLanguage} selected: ${sessionId}`);
-
-        // Track language selection (buffered - no DB write)
-        sessionManager.bufferLanguageSelection(
-          sessionId,
-          selectedLanguage as "en" | "yo" | "ha" | "ig"
-        );
-        sessionManager.bufferStateTransition(
-          sessionId,
-          IVRState.LANGUAGE_SELECTION,
-          IVRState.RECORDING_PROMPT,
-          dtmfDigits || choice.toString()
-        );
-      } else if (choice === 0) {
-        // Track call end choice (buffered - no DB write)
-        sessionManager.setTerminationInfo(
-          sessionId,
-          TerminationReason.COMPLETED_SUCCESSFULLY,
-          true
-        );
+        sessionManager.bufferLanguageSelection(sessionId, selectedLanguage as "en" | "yo" | "ha" | "ig");
+        sessionManager.bufferStateTransition(sessionId, IVRState.LANGUAGE_SELECTION, IVRState.RECORDING_PROMPT, dtmfDigits ?? "");
+        logger.info(`Language selected: ${selectedLanguage} for ${sessionId}`);
       }
 
       res.set("Content-Type", "application/xml");
@@ -355,128 +273,57 @@ class VoiceController {
     }
   };
 
-  handleLanguageTimeout = async (
-    req: Request,
-    res: Response
-  ): Promise<void> => {
+  // ─── 3. Language timeout ───────────────────────────────────────────────────
+
+  handleLanguageTimeout = async (req: Request, res: Response): Promise<void> => {
     try {
       const webhookData = req.body as AfricasTalkingWebhook;
       const { sessionId, isActive, dtmfDigits } = webhookData;
 
-      logger.info(`=== LANGUAGE TIMEOUT WEBHOOK ===`);
-      logger.info(`Full webhook data:`, JSON.stringify(webhookData, null, 2));
-      logger.info(
-        `Language timeout - Session: ${sessionId}, Active: ${isActive}, DTMF: ${dtmfDigits}`
-      );
+      logger.info(`Language timeout: ${sessionId} | DTMF: ${dtmfDigits} | Active: ${isActive}`);
 
-      // If call is not active, end call
       if (isActive === "0") {
-        const session = sessionManager.getSession(sessionId);
-        if (session && session.engagementBuffer) {
-          sessionManager.setTerminationInfo(
-            sessionId,
-            TerminationReason.USER_HANGUP,
-            false
-          );
-          sessionManager.bufferStateTransition(
-            sessionId,
-            session.engagementBuffer.currentState || IVRState.TIMEOUT,
-            IVRState.CALL_ENDED
-          );
-
-          engagementService
-            .flushEngagementToDatabase(
-              sessionId,
-              session.engagementBuffer,
-              session.callerNumber,
-              session.startTime
-            )
-            .catch((error) =>
-              logger.error("Failed to flush engagement data:", error)
-            );
-        }
-
+        await this.flushOnCallEnd(sessionId, webhookData.callerNumber, undefined, "0", IVRState.TIMEOUT);
         res.status(200).send("");
         return;
       }
 
-      const choice = africasTalkingService.extractMenuChoice(dtmfDigits || "");
-      let responseXML = "";
-
-      // Check if user made a valid language selection (1-4)
-      let selectedLanguage = "";
+      const choice = africasTalkingService.extractMenuChoice(dtmfDigits ?? "");
       const ttsAvailable = africasTalkingService.isTTSAvailable();
 
-      if (choice === 1) {
-        selectedLanguage = "en";
-      } else if (choice === 2 && ttsAvailable) {
-        selectedLanguage = "yo";
-      } else if (choice === 3 && ttsAvailable) {
-        selectedLanguage = "ha";
-      } else if (choice === 4 && ttsAvailable) {
-        selectedLanguage = "ig";
-      }
+      // Map DTMF choice to language code (same rules as handleLanguageSelection)
+      const languageMap: Record<number, string> = { 1: "en" };
+      if (ttsAvailable) { languageMap[2] = "yo"; languageMap[3] = "ha"; languageMap[4] = "ig"; }
+      const selectedLanguage = typeof choice === "number" ? languageMap[choice] : undefined;
 
       if (selectedLanguage) {
-        // Valid language selected - continue to recording
-        logger.info(
-          `✅ Language selected after timeout: ${selectedLanguage} for session: ${sessionId}`
-        );
-
-        // Store selected language in session - both in context AND at session level
         const session = sessionManager.getSession(sessionId);
         if (session) {
           session.language = selectedLanguage as "en" | "yo" | "ha" | "ig";
           sessionManager.saveSession(session);
         }
-        sessionManager.updateSessionContext(sessionId, {
-          language: selectedLanguage,
-          timeoutCount: 0, // Reset timeout count on successful selection
-        });
+        sessionManager.updateSessionContext(sessionId, { language: selectedLanguage, timeoutCount: 0 });
         sessionManager.updateSessionMenu(sessionId, "recording");
+        sessionManager.bufferLanguageSelection(sessionId, selectedLanguage as "en" | "yo" | "ha" | "ig");
+        sessionManager.bufferStateTransition(sessionId, IVRState.LANGUAGE_SELECTION, IVRState.RECORDING_PROMPT, dtmfDigits ?? "");
 
-        // Track language selection and state transition
-        sessionManager.bufferLanguageSelection(
-          sessionId,
-          selectedLanguage as "en" | "yo" | "ha" | "ig"
-        );
-        sessionManager.bufferStateTransition(
-          sessionId,
-          IVRState.LANGUAGE_SELECTION,
-          IVRState.RECORDING_PROMPT,
-          dtmfDigits || choice.toString()
-        );
-
-        // Use the same response format as successful language selection
-        responseXML =
-          await africasTalkingService.generateDirectRecordingResponse(
-            selectedLanguage
-          );
+        const responseXML = await africasTalkingService.generateDirectRecordingResponse(selectedLanguage);
+        res.set("Content-Type", "application/xml");
+        res.send(responseXML);
       } else {
-        // No valid input - abort call after 3 seconds
-        logger.warn(
-          `⏱️ No response after language timeout - aborting call for session: ${sessionId}`
-        );
-        const goodbyeAudio = await this.generateStaticAudioSay("goodbye", "en");
-        responseXML = `<?xml version="1.0" encoding="UTF-8"?>
+        // No valid input after second chance — end the call
+        logger.warn(`No language input after timeout for ${sessionId}, ending call`);
+        sessionManager.setTerminationInfo(sessionId, TerminationReason.TIMEOUT, false);
+        const goodbyeAudio = await this.staticAudio("goodbye", "en");
+        res.set("Content-Type", "application/xml");
+        res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <GetDigits timeout="3" finishOnKey="#">
     ${goodbyeAudio}
   </GetDigits>
   <Redirect>${config.webhook.baseUrl}/voice/end</Redirect>
-</Response>`;
-
-        sessionManager.setTerminationInfo(
-          sessionId,
-          TerminationReason.TIMEOUT,
-          false
-        );
+</Response>`);
       }
-
-      logger.info(`🎤 SENDING LANGUAGE TIMEOUT HANDLER RESPONSE:`);
-      logger.info(responseXML);
-      res.set("Content-Type", "application/xml");
-      res.send(responseXML);
     } catch (error) {
       logger.error("Error handling language timeout:", error);
       res.set("Content-Type", "application/xml");
@@ -484,131 +331,41 @@ class VoiceController {
     }
   };
 
+  // ─── 4. Recording ──────────────────────────────────────────────────────────
+
   handleRecording = async (req: Request, res: Response): Promise<void> => {
     try {
       const webhookData = req.body as AfricasTalkingWebhook;
-      const {
-        sessionId,
-        isActive,
-        recordingUrl,
-        callRecordingUrl,
-        callRecordingDurationInSeconds,
-      } = webhookData;
+      const { sessionId, isActive, recordingUrl, callRecordingUrl, callRecordingDurationInSeconds } = webhookData;
 
+      // Africa's Talking uses different field names depending on the webhook type
       const recording = recordingUrl || callRecordingUrl;
-      logger.info(`=== RECORDING WEBHOOK ===`);
-      logger.info(`Full webhook data:`, JSON.stringify(webhookData, null, 2));
-      logger.info(
-        `Recording received - Session: ${sessionId}, Active: ${isActive}, URL: ${recording}, Duration: ${callRecordingDurationInSeconds}s`
-      );
 
-      // LOG CALLER INFORMATION AND RECORDING DATA
-      logger.info("📞 === CALLER INFO (Recording) ===");
-      logger.info(`Session ID: ${sessionId}`);
-      logger.info(`Caller Number: ${webhookData.callerNumber || "N/A"}`);
-      logger.info(`Is Active: ${isActive}`);
-      logger.info(`Recording URL: ${recording || "N/A"}`);
-      logger.info(
-        `callRecordingDurationInSeconds: ${callRecordingDurationInSeconds} (${typeof callRecordingDurationInSeconds})`
-      );
-      logger.info(
-        `durationInSeconds: ${
-          webhookData.durationInSeconds
-        } (${typeof webhookData.durationInSeconds})`
-      );
-      logger.info("📊 All webhook fields related to duration:");
-      Object.keys(webhookData)
-        .filter(
-          (key) =>
-            key.toLowerCase().includes("duration") ||
-            key.toLowerCase().includes("time")
-        )
-        .forEach((key) => {
-          logger.info(`  ${key}: ${(webhookData as any)[key]}`);
-        });
-      logger.info("=== END CALLER INFO ===");
+      logger.info(`Recording: ${sessionId} | Active: ${isActive} | URL: ${recording ?? "none"} | Duration: ${callRecordingDurationInSeconds}s`);
 
-      // If call is not active, process recording if available then return
       if (isActive === "0") {
+        // Call ended during/after recording — still process the audio if we have it
         if (recording) {
-          logger.info(
-            `Session ${sessionId}: Recording completed. URL: ${recording}, Duration: ${callRecordingDurationInSeconds}s`
-          );
-
-          // Store recording URL
-          sessionManager.updateSessionContext(sessionId, {
-            recordingUrl: recording,
-            recordingDuration: callRecordingDurationInSeconds,
-          });
-
-          // Process recording even when call is inactive
           const session = sessionManager.getSession(sessionId);
-          const sessionLanguage = (session?.context?.language ||
-            session?.language ||
-            "en") as "en" | "yo" | "ha" | "ig";
-
-          logger.info(
-            `🚀 Starting background processing for inactive session: ${sessionId}`
+          const lang = this.getSessionLanguage(session);
+          sessionManager.updateSessionContext(sessionId, { recordingUrl: recording, recordingDuration: callRecordingDurationInSeconds });
+          this.processRecordingInBackground(sessionId, recording, lang).catch((err) =>
+            logger.error(`Background processing failed for ${sessionId}:`, err)
           );
-          this.processRecordingInBackground(
-            sessionId,
-            recording,
-            sessionLanguage
-          ).catch((err) => {
-            logger.error(
-              `Background processing failed for session ${sessionId}:`,
-              err
-            );
-            sessionManager.updateSessionContext(sessionId, {
-              processingError: true,
-            });
-          });
         }
-
-        // Flush buffered data when call ends during recording
-        const session = sessionManager.getSession(sessionId);
-        if (session && session.engagementBuffer) {
-          sessionManager.setTerminationInfo(
-            sessionId,
-            TerminationReason.USER_HANGUP,
-            false
-          );
-          sessionManager.bufferStateTransition(
-            sessionId,
-            session.engagementBuffer.currentState ||
-              IVRState.RECORDING_IN_PROGRESS,
-            IVRState.CALL_ENDED
-          );
-
-          engagementService
-            .flushEngagementToDatabase(
-              sessionId,
-              session.engagementBuffer,
-              session.callerNumber,
-              session.startTime
-            )
-            .catch((error) =>
-              logger.error("Failed to flush engagement data:", error)
-            );
-        }
-
+        await this.flushOnCallEnd(sessionId, webhookData.callerNumber, undefined, "0", IVRState.RECORDING_IN_PROGRESS);
         res.status(200).send("");
         return;
       }
 
-      // Get session language IMMEDIATELY for appropriate voice
       const session = sessionManager.getSession(sessionId);
-      const sessionLanguage = (session?.context?.language ||
-        session?.language ||
-        "en") as "en" | "yo" | "ha" | "ig";
+      const language = this.getSessionLanguage(session);
 
-      // Check if we have a recording URL
       if (!recording) {
-        logger.warn(`⚠️ No recording URL received for session: ${sessionId}`);
-        // Return error and ask to try again
+        logger.warn(`No recording URL for ${sessionId}`);
         const errorXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.generateStaticAudioSay("noRecording", sessionLanguage)}
+  ${await this.staticAudio("noRecording", language)}
   <Redirect>${config.webhook.baseUrl}/voice/language</Redirect>
 </Response>`;
         res.set("Content-Type", "application/xml");
@@ -616,232 +373,193 @@ class VoiceController {
         return;
       }
 
-      // Upload user recording to Cloudinary and store URLs for processing
-      const audioUploadService = (
-        await import("../services/audioUploadService")
-      ).default;
+      // Upload the user's recording to Cloudinary in the background (non-blocking)
       let userRecordingUrl: string | undefined;
       try {
-        userRecordingUrl =
-          (await audioUploadService.uploadUserRecording(
-            recording,
-            sessionId
-          )) || undefined;
+        const audioUploadService = (await import("../services/audioUploadService")).default;
+        userRecordingUrl = (await audioUploadService.uploadUserRecording(recording, sessionId)) ?? undefined;
       } catch (error) {
         logger.warn(`Failed to upload user recording for ${sessionId}:`, error);
       }
 
-      // Store recording URLs for immediate processing
       sessionManager.updateSessionContext(sessionId, {
         recordingUrl: recording,
         recordingDuration: callRecordingDurationInSeconds,
-        userRecordingUrl: userRecordingUrl,
+        userRecordingUrl,
       });
 
-      // Track recording state transition (buffered - no DB write)
-      sessionManager.bufferStateTransition(
-        sessionId,
-        IVRState.RECORDING_PROMPT,
-        IVRState.RECORDING_IN_PROGRESS
-      );
-      sessionManager.bufferStateTransition(
-        sessionId,
-        IVRState.RECORDING_IN_PROGRESS,
-        IVRState.AI_PROCESSING
-      );
-      logger.info(`📊 Buffered recording states for ${sessionId}`);
+      // Track state transitions through the recording flow
+      sessionManager.bufferStateTransition(sessionId, IVRState.RECORDING_PROMPT, IVRState.RECORDING_IN_PROGRESS);
+      sessionManager.bufferStateTransition(sessionId, IVRState.RECORDING_IN_PROGRESS, IVRState.AI_PROCESSING);
 
-      // Optimized approach: immediate processing + extended processing message
-      logger.info(`🚀 Starting optimized processing for session: ${sessionId}`);
-
-      // Start background processing immediately (don't await)
-      this.processRecordingInBackground(
-        sessionId,
-        recording,
-        sessionLanguage
-      ).catch((err) => {
-        logger.error(
-          `Background processing failed for session ${sessionId}:`,
-          err
-        );
-        sessionManager.updateSessionContext(sessionId, {
-          processingError: true,
-        });
+      // Start AI processing in the background immediately — the caller hears a
+      // "processing" message while we transcribe + query the AI + generate TTS
+      this.processRecordingInBackground(sessionId, recording, language).catch((err) => {
+        logger.error(`Background processing failed for ${sessionId}:`, err);
+        sessionManager.updateSessionContext(sessionId, { processingError: true });
       });
 
-      // Respond with initial processing message and 8-second analysis wait
-      const processingAudio = await this.generateStaticAudioSay(
-        "processing",
-        sessionLanguage
-      );
-      const analysisWaitAudio = await this.generateStaticAudioSay(
-        "analysisWait",
-        sessionLanguage
-      );
+      const processingAudio = await this.staticAudio("processing", language);
+      const analysisWaitAudio = await this.staticAudio("analysisWait", language);
 
-      // Extended processing message to cover longer AI processing time (12+ seconds)
-      const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
+      res.set("Content-Type", "application/xml");
+      res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${processingAudio}
   ${analysisWaitAudio}
   <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
-</Response>`;
-
-      logger.info(`🎤 SENDING IMMEDIATE PROCESSING RESPONSE:`);
-      logger.info(responseXML);
-      res.set("Content-Type", "application/xml");
-      res.send(responseXML);
+</Response>`);
     } catch (error) {
-      logger.error("💥 ERROR handling recording:", error);
+      logger.error("Error handling recording:", error);
       res.set("Content-Type", "application/xml");
       res.send(await africasTalkingService.generateErrorResponse());
     }
   };
 
-  handlePostAI = async (req: Request, res: Response): Promise<void> => {
+  // ─── 5. AI processing poll ─────────────────────────────────────────────────
+
+  handleAIProcessing = async (req: Request, res: Response): Promise<void> => {
     try {
-      const webhookData = req.body as AfricasTalkingWebhook;
-      const { sessionId, isActive, dtmfDigits } = webhookData;
-      const languageParam = (req.query.language as string) || "en";
+      const sessionId = req.query.session as string;
+      const { isActive } = req.body as AfricasTalkingWebhook;
 
-      logger.info(`=== POST-AI WEBHOOK ===`);
-      logger.info(
-        `Post-AI - Session: ${sessionId}, Active: ${isActive}, DTMF: ${dtmfDigits}, Language: ${languageParam}`
-      );
-
-      // LOG CALLER INFORMATION
-      logger.info("📞 === CALLER INFO (Post-AI Menu) ===");
-      logger.info(`Session ID: ${sessionId}`);
-      logger.info(`Caller Number: ${webhookData.callerNumber || "N/A"}`);
-      logger.info(`Is Active: ${isActive}`);
-      logger.info(`DTMF Input: ${dtmfDigits || "N/A"}`);
-      logger.info(`Language: ${languageParam}`);
-      logger.info("=== END CALLER INFO ===");
-
-      // If call is not active, end call
       if (isActive === "0") {
-        logger.info(`Session ${sessionId} ended after post-AI.`);
-
-        // Flush buffered data when call ends in post-AI
-        const session = sessionManager.getSession(sessionId);
-        if (session && session.engagementBuffer) {
-          sessionManager.setTerminationInfo(
-            sessionId,
-            TerminationReason.USER_HANGUP,
-            false
-          );
-          sessionManager.bufferStateTransition(
-            sessionId,
-            session.engagementBuffer.currentState || IVRState.POST_AI_MENU,
-            IVRState.CALL_ENDED
-          );
-
-          engagementService
-            .flushEngagementToDatabase(
-              sessionId,
-              session.engagementBuffer,
-              session.callerNumber,
-              session.startTime
-            )
-            .catch((error) =>
-              logger.error("Failed to flush engagement data:", error)
-            );
-        }
-
         res.status(200).send("");
         return;
       }
 
-      // If no DTMF digits, this is the initial redirect - show the post-AI menu
-      if (!dtmfDigits) {
-        // Track state transition to post-AI menu (buffered - no DB write)
-        sessionManager.bufferStateTransition(
-          sessionId,
-          IVRState.AI_RESPONSE,
-          IVRState.POST_AI_MENU
-        );
-        logger.info(`📊 Buffered post-AI menu state for ${sessionId}`);
-
-        const responseXML =
-          await africasTalkingService.generatePostAIMenuResponse(languageParam);
-
+      const session = sessionManager.getSession(sessionId);
+      if (!session) {
+        logger.error(`No session found: ${sessionId}`);
         res.set("Content-Type", "application/xml");
-        res.send(responseXML);
+        res.send(await africasTalkingService.generateErrorResponse());
         return;
       }
 
-      // Handle user's choice
-      const choice = africasTalkingService.extractMenuChoice(dtmfDigits);
-      let responseXML = "";
-      const language = languageParam as "en" | "yo" | "ha" | "ig";
+      const language = this.getSessionLanguage(session);
 
-      // Track post-AI menu choice (buffered - no DB write)
-      switch (choice) {
-        case 1:
-          sessionManager.bufferStateTransition(
-            sessionId,
-            IVRState.POST_AI_MENU,
-            IVRState.FOLLOW_UP_RECORDING,
-            dtmfDigits
-          );
-          break;
-        case 2:
-          sessionManager.bufferAgentTransfer(sessionId);
-          sessionManager.bufferStateTransition(
-            sessionId,
-            IVRState.POST_AI_MENU,
-            IVRState.HUMAN_AGENT_TRANSFER,
-            dtmfDigits
-          );
-          break;
-        case 3:
-          sessionManager.bufferStateTransition(
-            sessionId,
-            IVRState.POST_AI_MENU,
-            IVRState.WELCOME,
-            dtmfDigits
-          );
-          break;
-        case 0:
-          sessionManager.setTerminationInfo(
-            sessionId,
-            TerminationReason.COMPLETED_SUCCESSFULLY,
-            true
-          );
-          break;
+      if (session.context.processingError) {
+        res.set("Content-Type", "application/xml");
+        res.send(await africasTalkingService.generateErrorResponse(language));
+        return;
       }
-      logger.info(`📊 Buffered post-AI choice ${choice} for ${sessionId}`);
 
+      // AI response is ready — build and send the response XML
+      if (session.context.aiReady && session.context.aiResponse) {
+        logger.info(`AI ready for ${sessionId}`);
+        sessionManager.bufferStateTransition(sessionId, IVRState.AI_PROCESSING, IVRState.AI_RESPONSE);
+
+        const audioTag = await this.resolveAIAudioTag(session, language, sessionId);
+        const postAIAudio = await this.staticAudio("postAIMenu", language);
+        const noInputAudio = await this.staticAudio("noInputMessage", language);
+
+        // Reset wait-message tracking for next interaction
+        sessionManager.updateSessionContext(sessionId, { aiCheckStartTime: undefined, waitMessagePlayed: false });
+
+        res.set("Content-Type", "application/xml");
+        res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${audioTag}
+  <GetDigits timeout="2" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai?language=${language}">
+    ${postAIAudio}
+  </GetDigits>
+  ${noInputAudio}
+  <Redirect>${config.webhook.baseUrl}/voice/post-ai?language=${language}</Redirect>
+</Response>`);
+        return;
+      }
+
+      // AI not ready yet — play a wait message after 10 seconds, then keep polling
+      if (!session.context.aiCheckStartTime) {
+        sessionManager.updateSessionContext(sessionId, { aiCheckStartTime: Date.now(), waitMessagePlayed: false });
+      }
+
+      const elapsed = (Date.now() - (session.context.aiCheckStartTime ?? Date.now())) / 1000;
+      const waitPlayed = session.context.waitMessagePlayed ?? false;
+
+      if (elapsed >= 10 && !waitPlayed) {
+        const waitAudio = await this.staticAudio("wait", language);
+        const analysisAudio = await this.staticAudio("analysisWait", language);
+        sessionManager.updateSessionContext(sessionId, { waitMessagePlayed: true });
+        res.set("Content-Type", "application/xml");
+        res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${waitAudio}
+  ${analysisAudio}
+  <Pause length="4"/>
+  <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
+</Response>`);
+      } else {
+        // Silent 4-second pause then re-check
+        res.set("Content-Type", "application/xml");
+        res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Pause length="4"/>
+  <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
+</Response>`);
+      }
+    } catch (error) {
+      logger.error("Error in AI processing poll:", error);
+      const session = sessionManager.getSession(req.query.session as string);
+      const lang = this.getSessionLanguage(session);
+      res.set("Content-Type", "application/xml");
+      res.send(await africasTalkingService.generateErrorResponse(lang));
+    }
+  };
+
+  // ─── 6. Post-AI menu ───────────────────────────────────────────────────────
+
+  handlePostAI = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const webhookData = req.body as AfricasTalkingWebhook;
+      const { sessionId, isActive, dtmfDigits } = webhookData;
+      const language = ((req.query.language as string) || "en") as "en" | "yo" | "ha" | "ig";
+
+      logger.info(`Post-AI: ${sessionId} | DTMF: ${dtmfDigits} | Language: ${language}`);
+
+      if (isActive === "0") {
+        await this.flushOnCallEnd(sessionId, webhookData.callerNumber, undefined, "0", IVRState.POST_AI_MENU);
+        res.status(200).send("");
+        return;
+      }
+
+      // No DTMF yet — this is the initial redirect from handleAIProcessing, show the menu
+      if (!dtmfDigits) {
+        sessionManager.bufferStateTransition(sessionId, IVRState.AI_RESPONSE, IVRState.POST_AI_MENU);
+        res.set("Content-Type", "application/xml");
+        res.send(await africasTalkingService.generatePostAIMenuResponse(language));
+        return;
+      }
+
+      const choice = africasTalkingService.extractMenuChoice(dtmfDigits);
+
+      // Buffer the state transition for the chosen action
       switch (choice) {
-        case 1: // Ask another question - use follow-up recording (no language selection message)
-          responseXML =
-            await africasTalkingService.generateFollowUpRecordingResponse(
-              language
-            );
-          break;
+        case 1: sessionManager.bufferStateTransition(sessionId, IVRState.POST_AI_MENU, IVRState.FOLLOW_UP_RECORDING, dtmfDigits); break;
+        case 2: sessionManager.bufferAgentTransfer(sessionId); sessionManager.bufferStateTransition(sessionId, IVRState.POST_AI_MENU, IVRState.HUMAN_AGENT_TRANSFER, dtmfDigits); break;
+        case 3: sessionManager.bufferStateTransition(sessionId, IVRState.POST_AI_MENU, IVRState.WELCOME, dtmfDigits); break;
+        case 0: sessionManager.setTerminationInfo(sessionId, TerminationReason.COMPLETED_SUCCESSFULLY, true); break;
+      }
 
-        case 2: // Speak with human expert
-          responseXML = await africasTalkingService.generateTransferResponse(
-            language
-          );
+      let responseXML: string;
+      switch (choice) {
+        case 1: // Ask another question
+          responseXML = await africasTalkingService.generateFollowUpRecordingResponse(language);
           break;
-
-        case 3: // Go back to main menu
+        case 2: // Speak with a human expert
+          responseXML = await africasTalkingService.generateTransferResponse(language);
+          break;
+        case 3: // Back to main menu
           responseXML = await africasTalkingService.generateWelcomeResponse();
           break;
-
         case 0: // End call
           responseXML = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${await this.generateStaticAudioSay("goodbye", language)}
+  ${await this.staticAudio("goodbye", language)}
 </Response>`;
           break;
-
-        default:
-          // Invalid choice - repeat the menu
-          responseXML = await africasTalkingService.generatePostAIMenuResponse(
-            language
-          );
+        default: // Invalid input — repeat the menu
+          responseXML = await africasTalkingService.generatePostAIMenuResponse(language);
       }
 
       res.set("Content-Type", "application/xml");
@@ -853,177 +571,16 @@ class VoiceController {
     }
   };
 
-  private cleanAIResponse(response: string): string {
-    // Complete text processing for audio delivery
-    return (
-      response
-        // Remove markdown formatting
-        .replace(/\*\*/g, "") // Remove bold markdown
-        .replace(/\*/g, "") // Remove italic markdown
-        .replace(/##\s*/g, "") // Remove heading markdown
-        .replace(/#\s*/g, "") // Remove heading markdown
-
-        // Remove robotic labels (Problem:, Cause:, Solution:, etc.) - make it conversational
-        .replace(/\*\*Problem:\*\*/gi, "")
-        .replace(/\*\*Cause:\*\*/gi, "")
-        .replace(/\*\*Solution:\*\*/gi, "")
-        .replace(/\*\*Prevention:\*\*/gi, "")
-        .replace(/\*\*When to call vet:\*\*/gi, "If you need a vet:")
-        .replace(/Problem:\s*/gi, "")
-        .replace(/Cause:\s*/gi, "")
-        .replace(/Solution:\s*/gi, "")
-        .replace(/Prevention:\s*/gi, "To prevent this,")
-        .replace(/When to call vet:\s*/gi, "Call your vet if")
-
-        // Handle measurements and abbreviations
-        .replace(/Dr\./g, "Doctor")
-        .replace(/(\d+)\s*mg/g, "$1 milligrams")
-        .replace(/(\d+)\s*ml/g, "$1 milliliters")
-        .replace(/(\d+)\s*kg/g, "$1 kilograms")
-        .replace(/(\d+)°C/g, "$1 degrees Celsius")
-
-        // Clean up line breaks and spacing
-        .replace(/\n\s*[\d\-\*]\.\s*/g, ". ") // Convert numbered/bulleted lists to sentences
-        .replace(/\n\s*[\-\*]\s*/g, ". ") // Convert bullet points to sentences
-        .replace(/\n\s*\n/g, ". ") // Replace double newlines with period
-        .replace(/\n/g, " ") // Replace single newlines with space
-
-        // Clean up punctuation
-        .replace(/\.\s*\./g, ".") // Remove double periods
-        .replace(/\s*:\s*/g, ": ") // Clean up colons
-        .replace(/\s+/g, " ") // Remove extra spaces
-        .replace(/\s+\./g, ".") // Remove spaces before periods
-        .trim()
-    );
-  }
+  // ─── Background AI processing pipeline ────────────────────────────────────
 
   /**
-   * Truncate AI response to prevent large audio files that cause AT timeouts
-   */
-  private truncateForAudio(text: string, maxLength: number = 1000): string {
-    if (text.length <= maxLength) {
-      return text;
-    }
-
-    // Find the last complete sentence within the limit
-    const truncated = text.substring(0, maxLength);
-    const lastPeriod = truncated.lastIndexOf(".");
-    const lastExclamation = truncated.lastIndexOf("!");
-    const lastQuestion = truncated.lastIndexOf("?");
-
-    const lastSentenceEnd = Math.max(lastPeriod, lastExclamation, lastQuestion);
-
-    if (lastSentenceEnd > 0) {
-      return truncated.substring(0, lastSentenceEnd + 1);
-    }
-
-    // If no sentence boundary found, just truncate and add period
-    return truncated.trim() + ".";
-  }
-
-  /**
-   * Generate language-specific Say tag using TTS when available, fallback to default voice
-   */
-  private async generateLanguageSpecificSay(
-    text: string,
-    language: "en" | "yo" | "ha" | "ig",
-    phoneNumber?: string,
-    sessionId?: string
-  ): Promise<string> {
-    try {
-      // This is for dynamic AI responses only - static messages use staticAudioService directly
-      const audioUrl = await africasTalkingService.generateTTSAudio(
-        text,
-        language,
-        phoneNumber || "unknown",
-        sessionId
-      );
-      if (audioUrl) {
-        return `<Play url="${audioUrl}"/>`;
-      }
-    } catch (error) {
-      const sessionInfo = sessionId ? ` [${sessionId.slice(-8)}]` : "";
-      logger.error(`TTS${sessionInfo} failed for ${language}:`, error);
-      throw error;
-    }
-
-    // Fallback to Say tag
-    return `<Say voice="woman">${this.escapeXML(text)}</Say>`;
-  }
-
-  /**
-   * Generate static audio using pre-generated files
-   */
-  private async generateStaticAudioSay(
-    textKey:
-      | "welcome"
-      | "processing"
-      | "analysisWait"
-      | "error"
-      | "goodbye"
-      | "noRecording"
-      | "wait"
-      | "directRecording"
-      | "followUpRecording"
-      | "postAIMenu"
-      | "noInputMessage"
-      | "transfer"
-      | "languageTimeout",
-    language: "en" | "yo" | "ha" | "ig"
-  ): Promise<string> {
-    try {
-      // First try to get pre-generated static audio
-      const staticAudioService = (
-        await import("../services/staticAudioService")
-      ).default;
-      const audioUrl = staticAudioService.getStaticAudioUrl(language, textKey);
-
-      if (audioUrl) {
-        logger.info(
-          `🎵 Using pre-generated static audio for ${language}_${textKey}`
-        );
-        return `<Play url="${audioUrl}"/>`;
-      } else {
-        logger.warn(
-          `⚠️ No pre-generated audio for ${language}_${textKey}, generating dynamically`
-        );
-        const text = staticAudioService.getStaticText(language, textKey);
-        return await this.generateLanguageSpecificSay(text, language);
-      }
-    } catch (error) {
-      logger.error(
-        `Error generating static audio for ${language}_${String(textKey)}:`,
-        error
-      );
-      // Fallback to basic Say tag
-      return `<Say voice="woman">System message</Say>`;
-    }
-  }
-
-  private escapeXML(text: string): string {
-    return text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;");
-  }
-
-  /**
-   * Get goodbye message in appropriate language
-   */
-  private getGoodbyeMessage(language: "en" | "yo" | "ha" | "ig"): string {
-    const messages = {
-      en: "Thank you for using Agrocist. Have a great day!",
-      yo: "A dúpẹ́ fún lilo Agrocist. Ẹ ní ọjọ́ tí ó dára!",
-      ha: "Na gode da amfani da Agrocist. Ku yi kyakkyawan rana!",
-      ig: "Daalụ maka iji Agrocist. Nwee ụbọchị ọma!",
-    };
-    return messages[language] || messages.en;
-  }
-
-  /**
-   * Process recording in background for speed - no TTS generation to avoid delays
+   * Runs the full AI pipeline for a voice recording in the background:
+   *   1. Transcribe the audio (OpenAI Whisper or ElevenLabs)
+   *   2. Query the AI with the transcription (OpenAI GPT-4o-mini)
+   *   3. Generate TTS audio for the AI response (Spitch)
+   *
+   * Results are stored in the session context so handleAIProcessing can
+   * pick them up when it polls.
    */
   private async processRecordingInBackground(
     sessionId: string,
@@ -1033,7 +590,7 @@ class VoiceController {
     try {
       const startTime = Date.now();
 
-      // Clear any previous AI response and TTS cache to prevent reuse from earlier questions
+      // Clear any stale AI state from a previous question in this session
       sessionManager.updateSessionContext(sessionId, {
         preGeneratedAudioTag: undefined,
         ttsGenerating: false,
@@ -1042,392 +599,218 @@ class VoiceController {
         ttsGenerationFailed: false,
       });
 
-      // 1. Transcribe audio
-      const farmerText = await aiService.transcribeAudio(
-        recordingUrl,
-        language
-      );
-      const transcriptionTime = Date.now() - startTime;
-      logger.info(`⚡ Transcribed (${transcriptionTime}ms): "${farmerText}"`);
+      // Step 1: Transcribe
+      const transcription = await aiService.transcribeAudio(recordingUrl, language);
+      logger.info(`Transcribed (${Date.now() - startTime}ms): "${transcription}"`);
+      sessionManager.updateSessionContext(sessionId, { transcription });
 
-      // 2. Store transcription
-      sessionManager.updateSessionContext(sessionId, {
-        transcription: farmerText,
-      });
-
-      // 3. Process with AI
+      // Step 2: AI query
       const aiStartTime = Date.now();
-      const aiResponse = await aiService.processVeterinaryQuery(farmerText, {
+      const aiResult = await aiService.processVeterinaryQuery(transcription, {
         menu: "veterinary_ai",
         farmerId: sessionId,
-        language: language,
-        sessionId: sessionId, // Pass sessionId for conversation context
+        language,
+        sessionId,
       });
       const aiTime = Date.now() - aiStartTime;
 
-      // 4. Clean response (no truncation)
-      const cleanedResponse = this.cleanAIResponse(aiResponse.response);
+      const cleanedResponse = this.cleanAIResponse(aiResult.response);
+      logger.info(`AI response (${aiTime}ms): "${cleanedResponse}"`);
 
-      logger.info(`🤖 AI processed (${aiTime}ms): "${cleanedResponse}"`);
+      // Store the AI response and mark it as ready for the polling handler
+      sessionManager.addAIInteraction(sessionId, transcription, cleanedResponse, 0.9, "veterinary");
+      sessionManager.updateSessionContext(sessionId, { aiResponse: cleanedResponse, aiReady: true });
 
-      // 5. Store AI interaction and mark as ready
-      sessionManager.addAIInteraction(
-        sessionId,
-        farmerText,
-        cleanedResponse,
-        0.9,
-        "veterinary"
-      );
-      sessionManager.updateSessionContext(sessionId, {
-        aiResponse: cleanedResponse,
-        aiReady: true,
-      });
-
-      // 6. Track AI interaction (user recording already uploaded in handleRecording)
+      // Buffer the interaction for the engagement flush at call end
       const session = sessionManager.getSession(sessionId);
-      const recordingDuration = session?.context?.recordingDuration || 0;
-      const userRecordingUrl = session?.context?.userRecordingUrl;
-
       sessionManager.bufferAIInteraction(
         sessionId,
-        recordingDuration,
-        { query: farmerText, url: userRecordingUrl },
+        session?.context?.recordingDuration ?? 0,
+        { query: transcription, url: session?.context?.userRecordingUrl },
         { response: cleanedResponse },
         aiTime,
-        0,
+        0, // TTS time updated below once generation completes
         language,
-        aiResponse.confidence
+        aiResult.confidence
       );
 
-      // 7. Mark TTS generation as "in progress" and start in background
-      sessionManager.updateSessionContext(sessionId, {
-        ttsGenerating: true,
-      });
-
+      // Step 3: TTS — generate in background so it's ready when the poll arrives
+      sessionManager.updateSessionContext(sessionId, { ttsGenerating: true });
       const ttsStartTime = Date.now();
-      const callerNumber = session?.callerNumber || "unknown";
 
-      // Set a timeout for TTS generation to prevent hanging
+      // Set a 20-second safety timeout in case TTS hangs
       const ttsTimeout = setTimeout(() => {
-        sessionManager.updateSessionContext(sessionId, {
-          ttsGenerating: false,
-          ttsGenerationFailed: true,
-        });
+        sessionManager.updateSessionContext(sessionId, { ttsGenerating: false, ttsGenerationFailed: true });
         logger.error(`TTS timeout after 20s for ${sessionId}`);
       }, 20000);
 
-      this.generateLanguageSpecificSay(cleanedResponse, language, callerNumber)
+      this.generateDynamicAudioTag(cleanedResponse, language, session?.callerNumber ?? "unknown", sessionId)
         .then((audioTag) => {
           clearTimeout(ttsTimeout);
           const ttsTime = Date.now() - ttsStartTime;
-          sessionManager.updateSessionContext(sessionId, {
-            preGeneratedAudioTag: audioTag,
-            ttsGenerating: false,
-          });
-          // Update the TTS generation time and AI response URL in the last interaction
+          sessionManager.updateSessionContext(sessionId, { preGeneratedAudioTag: audioTag, ttsGenerating: false });
           sessionManager.updateLastInteractionTTSTime(sessionId, ttsTime);
 
-          // Extract Cloudinary URL from audioTag if it's a Play tag
+          // Extract and store the Cloudinary URL from the Play tag for analytics
           const urlMatch = audioTag.match(/url="([^"]+)"/);
-          const aiResponseUrl = urlMatch ? urlMatch[1] : undefined;
-          if (aiResponseUrl) {
-            sessionManager.updateLastInteractionAIResponseUrl(
-              sessionId,
-              aiResponseUrl
-            );
-          }
+          if (urlMatch?.[1]) sessionManager.updateLastInteractionAIResponseUrl(sessionId, urlMatch[1]);
 
-          logger.info(`✅ TTS cached (${ttsTime}ms): ${sessionId}`);
-
-          // Emit event that audio is ready
-          const aiAudioEventEmitter =
-            require("../utils/aiAudioEventEmitter").default;
-          aiAudioEventEmitter.emitAudioReady(sessionId, audioTag);
+          logger.info(`TTS ready (${ttsTime}ms): ${sessionId}`);
         })
         .catch((err) => {
           clearTimeout(ttsTimeout);
-          sessionManager.updateSessionContext(sessionId, {
-            ttsGenerating: false,
-            ttsGenerationFailed: true,
-          });
+          sessionManager.updateSessionContext(sessionId, { ttsGenerating: false, ttsGenerationFailed: true });
           logger.error(`TTS failed for ${sessionId}:`, err);
         });
 
-      const totalTime = Date.now() - startTime;
-      logger.info(`⚡ Processing complete (${totalTime}ms): ${sessionId}`);
+      logger.info(`Background processing complete (${Date.now() - startTime}ms): ${sessionId}`);
     } catch (error) {
-      logger.error(
-        `Error in background processing for session ${sessionId}:`,
-        error
-      );
+      logger.error(`Background processing error for ${sessionId}:`, error);
       sessionManager.updateSessionContext(sessionId, { processingError: true });
-
-      // Track processing error (buffered - no DB write)
       sessionManager.bufferError(
         sessionId,
-        `AI processing error: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `AI processing error: ${error instanceof Error ? error.message : String(error)}`,
         IVRState.AI_PROCESSING,
         "high"
       );
-      logger.info(`📊 Buffered processing error for ${sessionId}`);
     }
   }
 
-  handleAIProcessing = async (req: Request, res: Response): Promise<void> => {
-    try {
-      const sessionId = req.query.session as string;
-      const webhookData = req.body as AfricasTalkingWebhook;
-      const { isActive } = webhookData;
-
-      // If call is not active, just return empty response
-      if (isActive === "0") {
-        logger.info(
-          `❌ Call ended for session: ${sessionId}, returning empty response`
-        );
-        res.status(200).send("");
-        return;
-      }
-
-      // Get session data
-      const session = sessionManager.getSession(sessionId);
-      if (!session) {
-        logger.error(`No session found: ${sessionId}`);
-        res.set("Content-Type", "application/xml");
-        res.send(await africasTalkingService.generateErrorResponse());
-        return;
-      }
-
-      const language = (session.context.language ||
-        session.language ||
-        "en") as "en" | "yo" | "ha" | "ig";
-
-      // Check if processing encountered an error
-      if (session.context.processingError) {
-        logger.error(`Processing error detected for session: ${sessionId}`);
-        res.set("Content-Type", "application/xml");
-        res.send(await africasTalkingService.generateErrorResponse(language));
-        return;
-      }
-
-      // Check if AI response is ready
-      if (session.context.aiReady && session.context.aiResponse) {
-        logger.info(`✅ AI ready: ${sessionId}`);
-        const aiResponse = session.context.aiResponse;
-
-        // Reset wait tracking when AI is ready
-        sessionManager.updateSessionContext(sessionId, {
-          aiCheckStartTime: undefined,
-          waitMessagePlayed: false,
-        });
-
-        // Track state transition to AI response (buffered - no DB write)
-        sessionManager.bufferStateTransition(
-          sessionId,
-          IVRState.AI_PROCESSING,
-          IVRState.AI_RESPONSE
-        );
-
-        // Check if TTS was pre-generated, is generating, or needs generation
-        const ttsStartTime = Date.now();
-        let audioTag: string | undefined;
-
-        if (session.context.preGeneratedAudioTag) {
-          // Use pre-generated audio (instant)
-          audioTag = session.context.preGeneratedAudioTag;
-        } else if (session.context.ttsGenerating) {
-          // Wait for ongoing background generation
-
-          // Poll for completion (max 20 seconds)
-          const maxWaitTime = 40000;
-          const pollInterval = 5000;
-          const startWait = Date.now();
-
-          while (
-            session.context.ttsGenerating &&
-            Date.now() - startWait < maxWaitTime
-          ) {
-            await new Promise((resolve) => setTimeout(resolve, pollInterval));
-            // Refresh session to get latest context
-            const updatedSession = sessionManager.getSession(sessionId);
-            if (updatedSession?.context.preGeneratedAudioTag) {
-              audioTag = updatedSession.context.preGeneratedAudioTag;
-              const waitTime = Date.now() - startWait;
-              logger.info(`⚡ TTS ready after ${waitTime}ms: ${sessionId}`);
-              break;
-            }
-          }
-
-          // If still not ready after waiting, generate now
-          if (!audioTag) {
-            logger.warn(`TTS timeout, generating on-demand: ${sessionId}`);
-            audioTag = await this.generateLanguageSpecificSay(
-              aiResponse,
-              language,
-              session.callerNumber,
-              sessionId
-            );
-          }
-        } else {
-          // Generate now if pre-generation wasn't started or failed
-          logger.info(
-            `🎵 Generating AI response audio on-demand (no background generation) for ${sessionId}...`
-          );
-
-          // Generate on-demand with longer timeout
-          try {
-            audioTag = await this.generateLanguageSpecificSay(
-              aiResponse,
-              language,
-              session.callerNumber
-            );
-            const ttsTime = Date.now() - ttsStartTime;
-            logger.info(`⚡ TTS generated (${ttsTime}ms): ${sessionId}`);
-          } catch (error) {
-            logger.error(`TTS generation failed for ${sessionId}:`, error);
-            // Fallback to Say tag
-            audioTag = `<Say voice="woman">${this.escapeXML(aiResponse)}</Say>`;
-          }
-        }
-
-        // Use pre-generated static audio for menu prompts (instant)
-        const postAIAudio = await this.generateStaticAudioSay(
-          "postAIMenu",
-          language
-        );
-        const noInputMessage = await this.generateStaticAudioSay(
-          "noInputMessage",
-          language
-        );
-
-        const responseXML = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  ${audioTag}
-  <GetDigits timeout="2" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/post-ai?language=${language}">
-    ${postAIAudio}
-  </GetDigits>
-  ${noInputMessage}
-  <Redirect>${config.webhook.baseUrl}/voice/post-ai?language=${language}</Redirect>
-</Response>`;
-        res.set("Content-Type", "application/xml");
-        res.send(responseXML);
-        return;
-      }
-
-      // Track elapsed time since first check to determine when to play wait message
-      const currentSession = sessionManager.getSession(sessionId);
-      const lang = (currentSession?.context?.language ||
-        currentSession?.language ||
-        "en") as "en" | "yo" | "ha" | "ig";
-
-      // Initialize check start time if not set
-      if (!currentSession?.context?.aiCheckStartTime) {
-        sessionManager.updateSessionContext(sessionId, {
-          aiCheckStartTime: Date.now(),
-          waitMessagePlayed: false,
-        });
-      }
-
-      const checkStartTime =
-        currentSession?.context?.aiCheckStartTime || Date.now();
-      const elapsedSeconds = (Date.now() - checkStartTime) / 1000;
-      const waitMessagePlayed =
-        currentSession?.context?.waitMessagePlayed || false;
-
-      let redirectXML: string;
-
-      if (elapsedSeconds >= 10 && !waitMessagePlayed) {
-        // After 10 seconds, play extended wait message
-        const waitAudio = await this.generateStaticAudioSay("wait", lang);
-        const analysisWaitAudio = await this.generateStaticAudioSay(
-          "analysisWait",
-          lang
-        );
-        sessionManager.updateSessionContext(sessionId, {
-          waitMessagePlayed: true,
-        });
-        redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  ${waitAudio}
-  ${analysisWaitAudio}
-  <Pause length="4"/>
-  <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
-</Response>`;
-      } else {
-        // Silent check every 4 seconds
-        redirectXML = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Pause length="4"/>
-  <Redirect>${config.webhook.baseUrl}/voice/process-ai?session=${sessionId}</Redirect>
-</Response>`;
-      }
-
-      res.set("Content-Type", "application/xml");
-      res.send(redirectXML);
-    } catch (error) {
-      logger.error("💥 ERROR processing AI request:", error);
-      const session = sessionManager.getSession(req.query.session as string);
-      const lang = (session?.context?.language || session?.language || "en") as
-        | "en"
-        | "yo"
-        | "ha"
-        | "ig";
-      res.set("Content-Type", "application/xml");
-      res.send(await africasTalkingService.generateErrorResponse(lang));
-    }
-  };
+  // ─── Private helpers ───────────────────────────────────────────────────────
 
   /**
-   * Determine termination reason based on call data
+   * Resolve the audio tag to play for an AI response.
+   * Preference order:
+   *   1. Pre-generated audio tag (already in session context)
+   *   2. Wait for ongoing background TTS generation (up to 40s)
+   *   3. Generate on-demand
+   *   4. Fall back to <Say> tag
    */
-  private determineTerminationReason(
-    callEndReason?: string,
-    duration?: number
-  ): TerminationReason {
-    if (!duration || duration < 5) {
-      return TerminationReason.NETWORK_ISSUE;
-    }
-
-    if (callEndReason) {
-      const reason = callEndReason.toLowerCase();
-      if (reason.includes("timeout")) {
-        return TerminationReason.TIMEOUT;
-      }
-      if (reason.includes("error") || reason.includes("failed")) {
-        return TerminationReason.SYSTEM_ERROR;
-      }
-      if (reason.includes("completed") || reason.includes("success")) {
-        return TerminationReason.COMPLETED_SUCCESSFULLY;
-      }
-    }
-
-    // Default to user hangup if duration is reasonable
-    return TerminationReason.USER_HANGUP;
-  }
-
-  /**
-   * Generate welcome with agent check
-   */
-  private async generateWelcomeWithAgentCheck(
-    callerNumber: string,
+  private async resolveAIAudioTag(
+    session: any,
+    language: "en" | "yo" | "ha" | "ig",
     sessionId: string
   ): Promise<string> {
-    // Check for agent mapping
-    logger.info(`🔍 Checking agent mapping for caller: ${callerNumber}`);
+    const aiResponse = session.context.aiResponse as string;
+
+    if (session.context.preGeneratedAudioTag) {
+      return session.context.preGeneratedAudioTag;
+    }
+
+    if (session.context.ttsGenerating) {
+      // Poll for background TTS completion (max 40 seconds)
+      const maxWait = 40000;
+      const pollInterval = 500;
+      const start = Date.now();
+
+      while (Date.now() - start < maxWait) {
+        await new Promise((r) => setTimeout(r, pollInterval));
+        const updated = sessionManager.getSession(sessionId);
+        if (updated?.context.preGeneratedAudioTag) {
+          logger.info(`TTS ready after ${Date.now() - start}ms: ${sessionId}`);
+          return updated.context.preGeneratedAudioTag;
+        }
+        if (!updated?.context.ttsGenerating) break; // generation finished (possibly failed)
+      }
+    }
+
+    // Generate on-demand as last resort
+    logger.info(`Generating TTS on-demand for ${sessionId}`);
+    try {
+      return await this.generateDynamicAudioTag(aiResponse, language, session.callerNumber ?? "unknown", sessionId);
+    } catch (error) {
+      logger.error(`On-demand TTS failed for ${sessionId}:`, error);
+      return `<Say voice="woman">${this.escapeXML(aiResponse)}</Say>`;
+    }
+  }
+
+  /**
+   * Generate a TTS audio tag for dynamic text (AI responses).
+   * Returns a <Play url="..."/> tag on success, or a <Say> tag as fallback.
+   */
+  private async generateDynamicAudioTag(
+    text: string,
+    language: "en" | "yo" | "ha" | "ig",
+    phoneNumber: string,
+    sessionId?: string
+  ): Promise<string> {
+    const audioUrl = await africasTalkingService.generateTTSAudio(text, language, phoneNumber, sessionId);
+    if (audioUrl) return `<Play url="${audioUrl}"/>`;
+    return `<Say voice="woman">${this.escapeXML(text)}</Say>`;
+  }
+
+  /**
+   * Return a <Play> or <Say> tag for a pre-generated static audio clip.
+   * Falls back to a <Say> tag if the audio URL is not yet available.
+   */
+  private async staticAudio(key: StaticAudioKey, language: "en" | "yo" | "ha" | "ig"): Promise<string> {
+    const audioUrl = staticAudioService.getStaticAudioUrl(language, key);
+    if (audioUrl) return `<Play url="${audioUrl}"/>`;
+
+    // Dynamic fallback — generate on the fly if static audio isn't ready
+    const text = staticAudioService.getStaticText(language, key);
+    if (!text) return `<Say voice="woman">Please wait.</Say>`;
+
+    try {
+      const url = await africasTalkingService.generateTTSAudio(text, language);
+      if (url) return `<Play url="${url}"/>`;
+    } catch {
+      // ignore — fall through to Say tag
+    }
+    return `<Say voice="woman">${this.escapeXML(text)}</Say>`;
+  }
+
+  /**
+   * Check if a caller has an active premium subscription.
+   * Looks up the user by phone number (trying common Nigerian number formats)
+   * and checks subscription.plan === "premium" && subscription.status === "active".
+   * Returns false if the user is not found or has a basic/expired subscription.
+   */
+  private async checkPremiumSubscription(callerNumber: string): Promise<boolean> {
+    try {
+      // Normalise to the common formats stored in the DB
+      const phoneVariants = [
+        callerNumber,
+        callerNumber.replace(/^\+/, ""),           // strip leading +
+        callerNumber.replace(/^\+234/, "0"),        // +234XXXXXXXXXX → 0XXXXXXXXXX
+        callerNumber.replace(/^0/, "+234"),         // 0XXXXXXXXXX → +234XXXXXXXXXX
+      ];
+
+      const user = await User.findOne(
+        { phone: { $in: phoneVariants } },
+        { "subscription.plan": 1, "subscription.status": 1 }
+      ).lean();
+
+      if (!user) {
+        logger.info(`Premium check: user not found for ${callerNumber} — denying agent access`);
+        return false;
+      }
+
+      const sub = (user as any).subscription;
+      const isPremium = sub?.plan === "premium" && sub?.status === "active";
+
+      logger.info(`Premium check: ${callerNumber} → plan=${sub?.plan ?? "none"}, status=${sub?.status ?? "none"}, allowed=${isPremium}`);
+      return isPremium;
+    } catch (error) {
+      // On DB error, fail closed — don't grant access
+      logger.error(`Premium check failed for ${callerNumber}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if the incoming caller has an assigned agent.
+   * If so, log the call and return a direct Dial XML response.
+   * Otherwise return the normal welcome/language-selection XML.
+   */
+  private async generateWelcomeWithAgentCheck(callerNumber: string, sessionId: string): Promise<string> {
     const agentNumber = await getAgentForCaller(callerNumber);
-    logger.info(`🔍 Agent lookup result: ${agentNumber || 'No agent found'}`);
 
     if (agentNumber) {
-      logger.info(
-        `📞 Routing caller: ${callerNumber} to agent ${agentNumber}`
+      logger.info(`Routing ${callerNumber} to agent ${agentNumber}`);
+      agentCallLogService.logCall(agentNumber, callerNumber, sessionId).catch((err) =>
+        logger.error("Failed to log agent call:", err)
       );
-      
-      // Log the call
-      agentCallLogService.logCall(agentNumber, callerNumber, sessionId).catch(err =>
-        logger.error('Failed to log call:', err)
-      );
-      
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="woman">Please wait while we connect you to your agent.</Say>
@@ -1435,13 +818,98 @@ class VoiceController {
 </Response>`;
     }
 
-    logger.info(`ℹ️ No agent found, proceeding to normal IVR flow`);
-    return await africasTalkingService.generateWelcomeResponse();
+    return africasTalkingService.generateWelcomeResponse();
   }
 
   /**
-   * Handle dial callback - when agent is busy or unavailable
+   * Flush buffered engagement data to the database when a call ends.
+   * Called from every handler that receives isActive === "0".
    */
+  private async flushOnCallEnd(
+    sessionId: string,
+    callerNumber: string,
+    callEndReason?: string,
+    durationInSeconds?: string | number,
+    currentState?: string
+  ): Promise<void> {
+    const session = sessionManager.getSession(sessionId);
+    if (!session?.engagementBuffer) return;
+
+    const terminationReason = this.determineTerminationReason(callEndReason, Number(durationInSeconds));
+    const completed = terminationReason === TerminationReason.COMPLETED_SUCCESSFULLY;
+
+    sessionManager.setTerminationInfo(sessionId, terminationReason, completed);
+    sessionManager.bufferStateTransition(
+      sessionId,
+      currentState ?? session.engagementBuffer.currentState ?? IVRState.CALL_ENDED,
+      IVRState.CALL_ENDED
+    );
+
+    const interactions = session.engagementBuffer.aiInteractionsDetailed ?? [];
+    logger.info(`Call ended: ${sessionId} | ${callerNumber} | ${durationInSeconds}s | ${interactions.length} interactions`);
+
+    // Flush to DB in the background — don't block the HTTP response
+    engagementService
+      .flushEngagementToDatabase(sessionId, session.engagementBuffer, callerNumber, session.startTime)
+      .catch((err) => logger.error("Failed to flush engagement data:", err));
+  }
+
+  /**
+   * Infer the termination reason from the call end data.
+   */
+  private determineTerminationReason(callEndReason?: string, duration?: number): TerminationReason {
+    if (!duration || duration < 5) return TerminationReason.NETWORK_ISSUE;
+
+    if (callEndReason) {
+      const reason = callEndReason.toLowerCase();
+      if (reason.includes("timeout")) return TerminationReason.TIMEOUT;
+      if (reason.includes("error") || reason.includes("failed")) return TerminationReason.SYSTEM_ERROR;
+      if (reason.includes("completed") || reason.includes("success")) return TerminationReason.COMPLETED_SUCCESSFULLY;
+    }
+
+    return TerminationReason.USER_HANGUP;
+  }
+
+  /**
+   * Get the language stored in a session, defaulting to English.
+   */
+  private getSessionLanguage(session: any): "en" | "yo" | "ha" | "ig" {
+    return (session?.context?.language ?? session?.language ?? "en") as "en" | "yo" | "ha" | "ig";
+  }
+
+  /**
+   * Clean an AI response for speech output:
+   * - Remove markdown formatting
+   * - Remove robotic section labels (Problem:, Solution:, etc.)
+   * - Expand common abbreviations
+   * - Flatten lists and line breaks into natural sentences
+   */
+  private cleanAIResponse(response: string): string {
+    return response
+      // Remove markdown
+      .replace(/\*\*/g, "").replace(/\*/g, "").replace(/##\s*/g, "").replace(/#\s*/g, "")
+      // Remove robotic labels
+      .replace(/Problem:\s*/gi, "").replace(/Cause:\s*/gi, "").replace(/Solution:\s*/gi, "")
+      .replace(/Prevention:\s*/gi, "To prevent this, ").replace(/When to call vet:\s*/gi, "Call your vet if ")
+      // Expand abbreviations for natural speech
+      .replace(/Dr\./g, "Doctor").replace(/(\d+)\s*mg/g, "$1 milligrams")
+      .replace(/(\d+)\s*ml/g, "$1 milliliters").replace(/(\d+)\s*kg/g, "$1 kilograms")
+      .replace(/(\d+)°C/g, "$1 degrees Celsius")
+      // Flatten lists and line breaks
+      .replace(/\n\s*[\d\-*]\.\s*/g, ". ").replace(/\n\s*[-*]\s*/g, ". ")
+      .replace(/\n\s*\n/g, ". ").replace(/\n/g, " ")
+      // Clean up punctuation and whitespace
+      .replace(/\.\s*\./g, ".").replace(/\s*:\s*/g, ": ").replace(/\s+/g, " ").replace(/\s+\./g, ".")
+      .trim();
+  }
+
+  /** Escape XML special characters to prevent malformed XML responses. */
+  private escapeXML(text: string): string {
+    return text
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  }
 }
 
 export default new VoiceController();
+

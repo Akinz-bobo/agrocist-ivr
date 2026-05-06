@@ -404,7 +404,7 @@ class CloudinaryService {
     const content = `spitch-${text}-${language}`;
     const hash = crypto.createHash("md5").update(content).digest("hex");
 
-    // For static files, use descriptive naming: spitch_static_welcome_en, spitch_static_processing_yo, etc.
+    // For static files, use descriptive naming: welcome_en_new, processing_yo_new, etc.
     if (type === "static" && textKey) {
       return `${textKey}_${language}_new`;
     } else if (type === "static") {
