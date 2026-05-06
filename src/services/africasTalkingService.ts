@@ -71,7 +71,10 @@ class AfricasTalkingService {
       return this.generateAgentTransferResponse(lang);
     }
 
-    const audioUrl = staticAudioService.getStaticAudioUrl(lang, "directRecording");
+    const audioUrl = staticAudioService.getStaticAudioUrl(
+      lang,
+      "directRecording",
+    );
     const playTag = audioUrl
       ? `<Play url="${stripQueryParams(audioUrl)}"/>`
       : `<Say>${this.escapeXML(staticAudioService.getStaticText(lang, "directRecording"))}</Say>`;
@@ -89,7 +92,10 @@ class AfricasTalkingService {
    */
   async generateFollowUpRecordingResponse(language: string): Promise<string> {
     const lang = language as "en" | "yo" | "ha" | "ig";
-    const audioUrl = staticAudioService.getStaticAudioUrl(lang, "followUpRecording");
+    const audioUrl = staticAudioService.getStaticAudioUrl(
+      lang,
+      "followUpRecording",
+    );
     const playTag = audioUrl
       ? `<Play url="${stripQueryParams(audioUrl)}"/>`
       : `<Say>${this.escapeXML(staticAudioService.getStaticText(lang, "followUpRecording"))}</Say>`;
@@ -130,7 +136,9 @@ class AfricasTalkingService {
   /**
    * Build the agent transfer XML (plays a hold message then dials the agent).
    */
-  async generateTransferResponse(language: "en" | "yo" | "ha" | "ig" = "en"): Promise<string> {
+  async generateTransferResponse(
+    language: "en" | "yo" | "ha" | "ig" = "en",
+  ): Promise<string> {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${await this.getTransferXML(language)}
@@ -140,7 +148,9 @@ class AfricasTalkingService {
   /**
    * Build the error response XML (plays an error message then redirects to the main menu).
    */
-  async generateErrorResponse(language: "en" | "yo" | "ha" | "ig" = "en"): Promise<string> {
+  async generateErrorResponse(
+    language: "en" | "yo" | "ha" | "ig" = "en",
+  ): Promise<string> {
     const audioUrl = staticAudioService.getStaticAudioUrl(language, "error");
 
     if (audioUrl) {
@@ -168,10 +178,15 @@ class AfricasTalkingService {
     text: string,
     language: "en" | "yo" | "ha" | "ig",
     phoneNumber: string = "unknown",
-    sessionId?: string
+    sessionId?: string,
   ): Promise<string | null> {
     try {
-      const result = await ttsService.generateAIAudio(text, language, phoneNumber, sessionId);
+      const result = await ttsService.generateAIAudio(
+        text,
+        language,
+        phoneNumber,
+        sessionId,
+      );
       return result.audioUrl;
     } catch (error) {
       const tag = sessionId ? ` [${sessionId.slice(-8)}]` : "";
@@ -209,7 +224,10 @@ class AfricasTalkingService {
   /** Initiate an outbound call via Africa's Talking. */
   async makeCall(phoneNumber: string): Promise<boolean> {
     try {
-      await this.voice.call({ to: phoneNumber, from: config.africasTalking.shortCode });
+      await this.voice.call({
+        to: phoneNumber,
+        from: config.africasTalking.shortCode,
+      });
       logger.info(`Outbound call initiated to ${phoneNumber}`);
       return true;
     } catch (error) {
@@ -224,7 +242,7 @@ class AfricasTalkingService {
    * Build the gate menu XML fragment.
    * Plays the welcome audio inside a GetDigits tag so the caller can press
    * 1 (AI assistant) or 2 (human agent) at any point during playback.
-   * Redirects to /voice/gate on timeout so the handler can decide what to do.
+   * On timeout, GetDigits itself redirects to /voice/gate with no digits.
    */
   private async getGateMenuXML(): Promise<string> {
     const audioUrl = staticAudioService.getStaticAudioUrl("en", "welcome");
@@ -232,36 +250,37 @@ class AfricasTalkingService {
       ? `    <Play url="${stripQueryParams(audioUrl)}"/>`
       : `    <Say>${this.escapeXML(staticAudioService.getStaticText("en", "welcome"))}</Say>`;
 
-    return `<GetDigits timeout="5" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/gate">
+    return `<GetDigits timeout="10" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/gate">
 ${audioTag}
-  </GetDigits>
-  <Redirect>${config.webhook.baseUrl}/voice/gate</Redirect>`;
+  </GetDigits>`;
   }
 
   /**
    * Build the language-selection menu XML fragment (AI path, after gate press 1).
-   * The welcome audio is placed inside a GetDigits tag so the caller can
-   * press a digit at any time during playback.
    */
   private async getMainMenuXML(): Promise<string> {
-    // Re-use the language selection static text as the audio prompt
-    const LANGUAGE_MENU_TEXT = "Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.";
-    const audioUrl = staticAudioService.getStaticAudioUrl("en", "languageTimeout"); // closest static key
+    const LANGUAGE_MENU_TEXT =
+      "Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.";
+    const audioUrl = staticAudioService.getStaticAudioUrl(
+      "en",
+      "languageTimeout",
+    );
     const audioTag = audioUrl
       ? `    <Play url="${stripQueryParams(audioUrl)}"/>`
       : `    <Say>${this.escapeXML(LANGUAGE_MENU_TEXT)}</Say>`;
 
-    return `<GetDigits timeout="5" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language">
+    return `<GetDigits timeout="10" finishOnKey="#" callbackUrl="${config.webhook.baseUrl}/voice/language">
 ${audioTag}
-  </GetDigits>
-  <Redirect>${config.webhook.baseUrl}/voice/language</Redirect>`;
+  </GetDigits>`;
   }
 
   /**
    * Build the agent transfer XML fragment (hold message + Dial tag).
    * Uses the default agent number from config.
    */
-  private async getTransferXML(language: "en" | "yo" | "ha" | "ig" = "en"): Promise<string> {
+  private async getTransferXML(
+    language: "en" | "yo" | "ha" | "ig" = "en",
+  ): Promise<string> {
     const audioUrl = staticAudioService.getStaticAudioUrl(language, "transfer");
     const audioTag = audioUrl
       ? `<Play url="${stripQueryParams(audioUrl)}"/>`
@@ -276,7 +295,7 @@ ${audioTag}
    * Each language has its own dedicated agent phone number (configurable via env vars).
    */
   private async generateAgentTransferResponse(
-    language: "en" | "yo" | "ha" | "ig"
+    language: "en" | "yo" | "ha" | "ig",
   ): Promise<string> {
     const agentNumbers: Record<string, string> = {
       yo: process.env.YO_AGENT_PHONE ?? config.agent.phoneNumber,

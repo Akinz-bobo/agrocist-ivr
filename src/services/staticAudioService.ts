@@ -7,7 +7,8 @@ import Spitch from "spitch";
 
 // Keys for all pre-generated static audio clips
 export type StaticAudioKey =
-  | "welcome"        // New gate menu: "Press 1 for AI, press 2 for human agent"
+  | "welcome" // Full greeting + gate options (first time caller hears)
+  | "gateOptions" // Just the options: "Press 1 for AI, press 2 for human agent" (used on retry)
   | "premiumRequired" // Message for non-premium users trying to access human agents
   | "processing"
   | "analysisWait"
@@ -34,37 +35,47 @@ const VOICE_MAP: Record<string, string> = {
 // These are pre-generated at startup and served as audio files during calls.
 const STATIC_TEXTS: Record<string, Record<StaticAudioKey, string>> = {
   en: {
-    // Gate menu — the very first thing a caller hears
+    // Gate menu — the very first thing a caller hears (greeting + options)
     welcome:
       "Welcome to Agrocist, your trusted livestock farming partner. Press 1 to speak with our AI veterinary assistant, or press 2 to speak with a human agent.",
+    // Repeat prompt — options only, no greeting
+    gateOptions:
+      "Press 1 to speak with our AI veterinary assistant, or press 2 to speak with a human agent.",
     // Played when a non-premium user tries to reach a human agent
     premiumRequired:
       "Speaking with a human agent is a premium feature. Please subscribe to Agrocist Premium to access this service. Thank you for calling.",
-    processing: "Thank you for your question. Agrocist is analyzing your concern.",
+    processing:
+      "Thank you for your question. Agrocist is analyzing your concern.",
     analysisWait:
       "Please wait while we analyze your concern. This may take a few moments.",
-    error: "I'm sorry, I didn't understand that. Let me take you back to the main menu.",
+    error:
+      "I'm sorry, I didn't understand that. Let me take you back to the main menu.",
     goodbye: "Thank you for using Agrocist. Have a great day!",
-    noRecording: "I didn't hear your recording. Please try again and speak after the beep.",
+    noRecording:
+      "I didn't hear your recording. Please try again and speak after the beep.",
     wait: "Just a moment, processing your request.",
     directRecording:
       "You have selected English. Please describe your livestock concern. Speak clearly after the beep and press hash when done.",
     followUpRecording: "What else can I help you with?",
     postAIMenu: "Press 1 for another question, or press 0 to end the call.",
-    noInputMessage: "We did not receive your selection. Let me repeat the options.",
-    transfer: "Please hold while I connect you to one of our veterinary experts.",
+    noInputMessage:
+      "We did not receive your selection. Let me repeat the options.",
+    transfer:
+      "Please hold while I connect you to one of our veterinary experts.",
     languageTimeout:
       "We did not receive your response. Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.",
   },
 
   yo: {
     welcome: "", // Yoruba callers are transferred to agents — no welcome needed
+    gateOptions: "",
     premiumRequired:
       "Sísọ̀rọ̀ pẹ̀lú aṣojú ènìyàn jẹ́ ẹ̀yà àwọn tó sanwó. Ẹ jọ̀wọ́ ẹ forúkọ sílẹ̀ fún Agrocist Premium láti lo iṣẹ́ yìí. A dúpẹ́ fún ìpè yín.",
     processing: "O ṣeun fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìbéèrè yín.",
     analysisWait:
       "Ẹ jọ̀ọ́, ẹ dúró díẹ̀ kí a lè ṣe ìtúpalẹ̀ ìbéèrè yín. Ó lè gba ìsẹ́jú díẹ̀.",
-    error: "Ẹ má bínú, ohun tí ẹ sọ kò ye mí. Ẹ jẹ́ kí n gbe yín padà sí ipele àkọ́kọ́.",
+    error:
+      "Ẹ má bínú, ohun tí ẹ sọ kò ye mí. Ẹ jẹ́ kí n gbe yín padà sí ipele àkọ́kọ́.",
     goodbye: "O ṣeun fún lílo Agrocist. Ẹ ní ọjọ́ àlàáfíà!",
     noRecording:
       "Mi ò gbọ́ ohun tí ẹ wí. Ẹ jọ̀ọ́, kí ẹ gbìyànjú lẹ́ẹ̀kansi lẹ́yìn tí ẹ bá gbọ́ agogo náà.",
@@ -81,33 +92,39 @@ const STATIC_TEXTS: Record<string, Record<StaticAudioKey, string>> = {
 
   ha: {
     welcome: "", // Hausa callers are transferred to agents
+    gateOptions: "",
     premiumRequired:
       "Magana da wakilin ɗan adam fasali ne na premium. Don Allah ku yi rajista don Agrocist Premium don samun wannan sabis. Mun gode da kiran ku.",
     processing: "Mun gode da tambayarka. Agrocist yana nazarin tambayar ka.",
     analysisWait:
       "Da fatan za ka jira yayin da muke nazarin tambayar ka. Wannan zai iya ɗaukar ɗan lokaci kaɗan.",
-    error: "Yi haƙuri, ban fahimci abin da ka faɗa ba. Zan mayar da kai zuwa babban menu.",
+    error:
+      "Yi haƙuri, ban fahimci abin da ka faɗa ba. Zan mayar da kai zuwa babban menu.",
     goodbye: "Mun gode da amfani da Agrocist. Yi rana mai kyau!",
-    noRecording: "Ban ji abin da kuka faɗa ba. Da fatan za ku sake gwadawa bayan karar beep.",
+    noRecording:
+      "Ban ji abin da kuka faɗa ba. Da fatan za ku sake gwadawa bayan karar beep.",
     wait: "Da fatan ka jira, muna sarrafa buƙatarka.",
     directRecording:
       "Ka zaɓi Hausa. Don Allah ka bayyana tambayar da ta shafi dabbobinka. Ka yi magana a sarari bayan beep sannan ka danna hash idan ka gama.",
     followUpRecording: "Me zan taimaka maka da shi kuma?",
     postAIMenu: "Latsa daya don wani tambaya, ko sifili don rufe kiran.",
     noInputMessage: "Ba mu samu zabinka ba. Zan maimaita zaɓuɓɓukan.",
-    transfer: "Da fatan ka jira yayin da nake haɗa ka da kwararren likitan dabbobi.",
+    transfer:
+      "Da fatan ka jira yayin da nake haɗa ka da kwararren likitan dabbobi.",
     languageTimeout:
       "Ba ku danna komai ba, latsa daya don Turanci, biyu don Yoruba, uku don Hausa, ko hudu don Igbo.",
   },
 
   ig: {
     welcome: "", // Igbo callers are transferred to agents
+    gateOptions: "",
     premiumRequired:
       "Ikwu okwu na onye nnọchiteanya mmadụ bụ ihe nke ndị nwere premium. Biko debanye aha maka Agrocist Premium iji nweta ọrụ a. Daalụ maka oku gị.",
     processing: "Daalụ maka ajụjụ gị. Agrocist na-enyocha ajụjụ ị jụrụ.",
     analysisWait:
       "Biko chere obere ka anyị nyochaa ajụjụ gị. Nke a nwere ike were obere oge.",
-    error: "Biko, echeghị m ihe i kwuru nke ọma. Ka m weghachite gị na isi menu.",
+    error:
+      "Biko, echeghị m ihe i kwuru nke ọma. Ka m weghachite gị na isi menu.",
     goodbye: "Daalụ maka iji Agrocist. Ka ụbọchi gị bụrụ nke ọma!",
     noRecording: "Anụghị m ihe ị kwuru. Biko gbalịa ọzọ mgbe ụda beep gasịrị.",
     wait: "Biko chere ntakịrị ka anyị na-emekọ ihe i rịọrọ.",
@@ -141,7 +158,9 @@ class StaticAudioService {
    */
   async preGenerateStaticAudio(): Promise<void> {
     if (!config.spitch.apiKey) {
-      logger.error("Spitch API key not configured — static audio generation skipped");
+      logger.error(
+        "Spitch API key not configured — static audio generation skipped",
+      );
       return;
     }
 
@@ -163,7 +182,9 @@ class StaticAudioService {
       }
     }
 
-    logger.info(`Processing ${tasks.length} static audio files sequentially...`);
+    logger.info(
+      `Processing ${tasks.length} static audio files sequentially...`,
+    );
 
     // Process one at a time to avoid overwhelming the TTS API
     for (let i = 0; i < tasks.length; i++) {
@@ -184,7 +205,7 @@ class StaticAudioService {
 
     const elapsed = Date.now() - startTime;
     logger.info(
-      `🎵 Static audio pre-generation done in ${elapsed}ms — ✅ ${successCount} succeeded, ❌ ${failedCount} failed`
+      `🎵 Static audio pre-generation done in ${elapsed}ms — ✅ ${successCount} succeeded, ❌ ${failedCount} failed`,
     );
   }
 
@@ -193,7 +214,10 @@ class StaticAudioService {
    * Hard-coded overrides are used for files that were manually uploaded to Cloudinary
    * and need to bypass the normal public ID lookup.
    */
-  getStaticAudioUrl(language: "en" | "yo" | "ha" | "ig", key: StaticAudioKey): string | null {
+  getStaticAudioUrl(
+    language: "en" | "yo" | "ha" | "ig",
+    key: StaticAudioKey,
+  ): string | null {
     // The English post-AI menu was manually uploaded with a custom filename
     if (language === "en" && key === "postAIMenu") {
       return "https://res.cloudinary.com/dk9oamdmg/video/upload/v1/agrocist-ivr/audio/static/postAIMenu_en_new_changed.mp3";
@@ -206,12 +230,19 @@ class StaticAudioService {
    * Return the raw text for a given language + key.
    * Used as a fallback when audio is not available.
    */
-  getStaticText(language: "en" | "yo" | "ha" | "ig", key: StaticAudioKey): string {
+  getStaticText(
+    language: "en" | "yo" | "ha" | "ig",
+    key: StaticAudioKey,
+  ): string {
     return STATIC_TEXTS[language]?.[key] ?? STATIC_TEXTS["en"]?.[key] ?? "";
   }
 
   /** Return cache statistics (useful for health checks). */
-  getCacheStats(): { size: number; keys: string[]; cloudinaryEnabled: boolean } {
+  getCacheStats(): {
+    size: number;
+    keys: string[];
+    cloudinaryEnabled: boolean;
+  } {
     return {
       size: this.audioUrlCache.size,
       keys: Array.from(this.audioUrlCache.keys()),
@@ -229,7 +260,11 @@ class StaticAudioService {
    *   3. Exists on Cloudinary → use existing URL
    *   4. Generate via Spitch and upload
    */
-  private async processStaticAudio(language: string, key: string, text: string): Promise<void> {
+  private async processStaticAudio(
+    language: string,
+    key: string,
+    text: string,
+  ): Promise<void> {
     const cacheKey = `${language}_${key}`;
 
     // 1. Already cached in memory
@@ -251,7 +286,12 @@ class StaticAudioService {
       }
     } else if (cloudinaryService.isEnabled()) {
       // 3. Check Cloudinary
-      const publicId = cloudinaryService.generatePublicId(text, language, "static", key);
+      const publicId = cloudinaryService.generatePublicId(
+        text,
+        language,
+        "static",
+        key,
+      );
       const fullPublicId = `${config.cloudinary.folder}/static/${publicId}`;
 
       try {
@@ -264,7 +304,10 @@ class StaticAudioService {
         }
       } catch (error) {
         // Cloudinary API error — try direct URL before regenerating
-        logger.warn(`Cloudinary API error for ${cacheKey}, trying direct URL:`, error);
+        logger.warn(
+          `Cloudinary API error for ${cacheKey}, trying direct URL:`,
+          error,
+        );
         const directUrl = cloudinaryService.getOptimizedUrl(fullPublicId);
         if (directUrl) {
           finalUrl = stripQueryParams(directUrl);
@@ -292,12 +335,24 @@ class StaticAudioService {
    * Generate TTS audio via Spitch and upload to storage.
    * Returns the hosted URL, or null on failure.
    */
-  async generateAndUpload(text: string, language: string, textKey: string): Promise<string | null> {
+  async generateAndUpload(
+    text: string,
+    language: string,
+    textKey: string,
+  ): Promise<string | null> {
     try {
-      const audioBuffer = await this.generateTTSBuffer(text, language as "en" | "yo" | "ha" | "ig");
+      const audioBuffer = await this.generateTTSBuffer(
+        text,
+        language as "en" | "yo" | "ha" | "ig",
+      );
       if (!audioBuffer) return null;
 
-      const publicId = cloudinaryService.generatePublicId(text, language, "static", textKey);
+      const publicId = cloudinaryService.generatePublicId(
+        text,
+        language,
+        "static",
+        textKey,
+      );
 
       const result = await cloudinaryService.uploadAudioBuffer(audioBuffer, {
         publicId,
@@ -308,11 +363,16 @@ class StaticAudioService {
       });
 
       if (result?.secureUrl) {
-        logger.info(`✅ Uploaded static audio: ${language}_${textKey} → ${result.secureUrl}`);
+        logger.info(
+          `✅ Uploaded static audio: ${language}_${textKey} → ${result.secureUrl}`,
+        );
         return result.secureUrl;
       }
     } catch (error) {
-      logger.warn(`Failed to upload static audio: ${language}_${textKey}`, error);
+      logger.warn(
+        `Failed to upload static audio: ${language}_${textKey}`,
+        error,
+      );
     }
 
     return null;
@@ -323,7 +383,7 @@ class StaticAudioService {
    */
   private async generateTTSBuffer(
     text: string,
-    language: "en" | "yo" | "ha" | "ig"
+    language: "en" | "yo" | "ha" | "ig",
   ): Promise<Buffer | null> {
     if (!text?.trim()) {
       logger.error(`Empty text for Spitch TTS: language=${language}`);
