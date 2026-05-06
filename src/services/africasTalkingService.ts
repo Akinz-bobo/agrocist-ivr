@@ -257,14 +257,12 @@ ${audioTag}
 
   /**
    * Build the language-selection menu XML fragment (AI path, after gate press 1).
+   * Uses a clean prompt with no "we did not receive" prefix.
    */
   private async getMainMenuXML(): Promise<string> {
     const LANGUAGE_MENU_TEXT =
-      "Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.";
-    const audioUrl = staticAudioService.getStaticAudioUrl(
-      "en",
-      "languageTimeout",
-    );
+      "Please select your language. Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.";
+    const audioUrl = staticAudioService.getStaticAudioUrl("en", "languageMenu");
     const audioTag = audioUrl
       ? `    <Play url="${stripQueryParams(audioUrl)}"/>`
       : `    <Say>${this.escapeXML(LANGUAGE_MENU_TEXT)}</Say>`;

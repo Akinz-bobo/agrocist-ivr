@@ -10,6 +10,7 @@ export type StaticAudioKey =
   | "welcome" // Full greeting + gate options (first time caller hears)
   | "gateOptions" // Just the options: "Press 1 for AI, press 2 for human agent" (used on retry)
   | "premiumRequired" // Message for non-premium users trying to access human agents
+  | "languageMenu" // Clean language selection prompt: "Press 1 for English, 2 for Yoruba..."
   | "processing"
   | "analysisWait"
   | "error"
@@ -41,6 +42,9 @@ const STATIC_TEXTS: Record<string, Record<StaticAudioKey, string>> = {
     // Repeat prompt — options only, no greeting
     gateOptions:
       "Press 1 to speak with our AI veterinary assistant, or press 2 to speak with a human agent.",
+    // Language selection — clean prompt with no "we did not receive" prefix
+    languageMenu:
+      "Please select your language. Press 1 for English, 2 for Yoruba, 3 for Hausa, or 4 for Igbo.",
     // Played when a non-premium user tries to reach a human agent
     premiumRequired:
       "Speaking with a human agent is a premium feature. Please subscribe to Agrocist Premium to access this service. Thank you for calling.",
@@ -67,8 +71,9 @@ const STATIC_TEXTS: Record<string, Record<StaticAudioKey, string>> = {
   },
 
   yo: {
-    welcome: "", // Yoruba callers are transferred to agents — no welcome needed
+    welcome: "",
     gateOptions: "",
+    languageMenu: "",
     premiumRequired:
       "Sísọ̀rọ̀ pẹ̀lú aṣojú ènìyàn jẹ́ ẹ̀yà àwọn tó sanwó. Ẹ jọ̀wọ́ ẹ forúkọ sílẹ̀ fún Agrocist Premium láti lo iṣẹ́ yìí. A dúpẹ́ fún ìpè yín.",
     processing: "O ṣeun fún ìbéèrè yín. Agrocist ń ṣe ìtúpalẹ̀ ìbéèrè yín.",
@@ -91,8 +96,9 @@ const STATIC_TEXTS: Record<string, Record<StaticAudioKey, string>> = {
   },
 
   ha: {
-    welcome: "", // Hausa callers are transferred to agents
+    welcome: "",
     gateOptions: "",
+    languageMenu: "",
     premiumRequired:
       "Magana da wakilin ɗan adam fasali ne na premium. Don Allah ku yi rajista don Agrocist Premium don samun wannan sabis. Mun gode da kiran ku.",
     processing: "Mun gode da tambayarka. Agrocist yana nazarin tambayar ka.",
@@ -116,8 +122,9 @@ const STATIC_TEXTS: Record<string, Record<StaticAudioKey, string>> = {
   },
 
   ig: {
-    welcome: "", // Igbo callers are transferred to agents
+    welcome: "",
     gateOptions: "",
+    languageMenu: "",
     premiumRequired:
       "Ikwu okwu na onye nnọchiteanya mmadụ bụ ihe nke ndị nwere premium. Biko debanye aha maka Agrocist Premium iji nweta ọrụ a. Daalụ maka oku gị.",
     processing: "Daalụ maka ajụjụ gị. Agrocist na-enyocha ajụjụ ị jụrụ.",
