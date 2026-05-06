@@ -31,7 +31,7 @@ class CloudinaryService {
   private initializeCloudinary(): void {
     if (!config.cloudinary.useCloudinary) {
       logger.info(
-        "Cloudinary disabled via USE_CLOUDINARY environment variable"
+        "Cloudinary disabled via USE_CLOUDINARY environment variable",
       );
       return;
     }
@@ -55,7 +55,7 @@ class CloudinaryService {
 
       this.isConfigured = true;
       logger.info(
-        `Cloudinary configured successfully for cloud: ${config.cloudinary.cloudName}`
+        `Cloudinary configured successfully for cloud: ${config.cloudinary.cloudName}`,
       );
     } catch (error) {
       logger.error("Failed to configure Cloudinary:", error);
@@ -80,7 +80,7 @@ class CloudinaryService {
       folder?: string;
       resourceType?: "auto" | "image" | "video" | "raw";
       overwrite?: boolean;
-    } = {}
+    } = {},
   ): Promise<CloudinaryUploadResult | null> {
     if (!this.isEnabled()) {
       logger.debug("Cloudinary not enabled, skipping upload");
@@ -130,7 +130,7 @@ class CloudinaryService {
 
       const fileSize = fs.statSync(filePath).size;
       logger.info(
-        `✅ Cloudinary upload successful: ${result.secure_url} (${fileSize} bytes)`
+        `✅ Cloudinary upload successful: ${result.secure_url} (${fileSize} bytes)`,
       );
 
       return uploadResult;
@@ -152,7 +152,7 @@ class CloudinaryService {
       type?: "static" | "dynamic";
       language?: string;
       textKey?: string;
-    } = {}
+    } = {},
   ): Promise<CloudinaryUploadResult | null> {
     // Check local storage first - if enabled, save locally and return
     if (localAudioService.isEnabled()) {
@@ -215,8 +215,8 @@ class CloudinaryService {
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(
           () => reject(new Error("Cloudinary upload timeout (30s)")),
-          30000
-        )
+          30000,
+        ),
       );
 
       const result = (await Promise.race([
@@ -239,7 +239,7 @@ class CloudinaryService {
       });
 
       logger.info(
-        `✅ Cloudinary buffer upload successful: ${result.secure_url} (${buffer.length} bytes)`
+        `✅ Cloudinary buffer upload successful: ${result.secure_url} (${buffer.length} bytes)`,
       );
 
       return uploadResult;
@@ -269,7 +269,7 @@ class CloudinaryService {
         return true;
       } else {
         logger.warn(
-          `Cloudinary deletion failed: ${publicId} - ${result.result}`
+          `Cloudinary deletion failed: ${publicId} - ${result.result}`,
         );
         return false;
       }
@@ -294,7 +294,7 @@ class CloudinaryService {
     // Use cached result if not expired
     if (cached && now - cached.timestamp < this.cacheExpiryMs) {
       logger.debug(
-        `Using cached existence result for ${publicId}: ${cached.exists}`
+        `Using cached existence result for ${publicId}: ${cached.exists}`,
       );
       return cached.exists;
     }
@@ -322,12 +322,12 @@ class CloudinaryService {
       // Handle rate limiting specifically
       if (error.error?.http_code === 420 || error.http_code === 420) {
         const retryTime = error.error?.message?.match(
-          /Try again on ([\d-:\s]+) UTC/
+          /Try again on ([\d-:\s]+) UTC/,
         )?.[1];
         logger.warn(
           `🚨 Cloudinary rate limit exceeded (500 operations). Files will be regenerated. Retry after: ${
             retryTime || "unknown time"
-          }`
+          }`,
         );
         // Don't cache rate limit errors - we want to retry later
         return false; // Treat as file not found to trigger regeneration
@@ -336,7 +336,7 @@ class CloudinaryService {
       // Log other unexpected errors
       logger.warn(
         `Error checking Cloudinary file existence for ${publicId}:`,
-        error.error?.message || error.message || "Unknown error"
+        error.error?.message || error.message || "Unknown error",
       );
       // Don't cache errors - we want to retry
       return false;
@@ -352,7 +352,7 @@ class CloudinaryService {
       format?: string;
       quality?: string;
       bitRate?: string;
-    } = {}
+    } = {},
   ): string | null {
     if (!this.isEnabled()) {
       return null;
@@ -395,7 +395,7 @@ class CloudinaryService {
     text: string,
     language: string,
     type: "static" | "dynamic" = "dynamic",
-    textKey?: string
+    textKey?: string,
   ): string {
     const crypto = require("crypto");
     const config = require("../config").default;
@@ -404,8 +404,11 @@ class CloudinaryService {
     const content = `spitch-${text}-${language}`;
     const hash = crypto.createHash("md5").update(content).digest("hex");
 
-    // For static files, use descriptive naming: welcome_en_new, processing_yo_new, etc.
+    // For static files, use descriptive naming.
+    // "welcome_en" uses a distinct suffix "gate" to distinguish it from the old
+    // language-menu welcome (welcome_en_new) which has been deleted from Cloudinary.
     if (type === "static" && textKey) {
+      if (textKey === "welcome") return `${textKey}_${language}_gate`;
       return `${textKey}_${language}_new`;
     } else if (type === "static") {
       // Fallback for static files without textKey
@@ -427,10 +430,10 @@ class CloudinaryService {
       // Simplified cleanup - just log that cleanup was requested
       // The advanced search functionality can be implemented later when needed
       logger.info(
-        `🧹 Cloudinary cleanup requested for files older than ${maxAgeHours} hours`
+        `🧹 Cloudinary cleanup requested for files older than ${maxAgeHours} hours`,
       );
       logger.info(
-        "Note: Advanced cleanup features require additional Cloudinary configuration"
+        "Note: Advanced cleanup features require additional Cloudinary configuration",
       );
     } catch (error: any) {
       logger.error("Cloudinary cleanup failed:", error);
@@ -475,7 +478,7 @@ class CloudinaryService {
         publicId,
         exists: data.exists,
         age: Math.round((now - data.timestamp) / 1000), // age in seconds
-      })
+      }),
     );
 
     return {
@@ -488,7 +491,7 @@ class CloudinaryService {
    * Pre-populate cache with known static files to reduce API calls
    */
   prePopulateCache(
-    staticFiles: Array<{ publicId: string; exists: boolean }>
+    staticFiles: Array<{ publicId: string; exists: boolean }>,
   ): void {
     const now = Date.now();
     staticFiles.forEach((file) => {
@@ -498,7 +501,7 @@ class CloudinaryService {
       });
     });
     logger.info(
-      `Pre-populated cache with ${staticFiles.length} static file entries`
+      `Pre-populated cache with ${staticFiles.length} static file entries`,
     );
   }
 }

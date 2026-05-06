@@ -17,15 +17,20 @@ cloudinary.config({
 
 // Public IDs to delete — add any other stale files here
 const STALE_FILES = [
-  "agrocist-ivr/audio/static/welcome_en_new",
+  "agrocist-ivr/audio/static/welcome_en_new", // old language-menu welcome (stale)
+  "agrocist-ivr/audio/static/welcome_en_gate", // delete if a bad version was uploaded
 ];
 
 async function deleteStaleFiles() {
-  console.log(`Deleting ${STALE_FILES.length} stale file(s) from Cloudinary...\n`);
+  console.log(
+    `Deleting ${STALE_FILES.length} stale file(s) from Cloudinary...\n`,
+  );
 
   for (const publicId of STALE_FILES) {
     try {
-      const result = await cloudinary.uploader.destroy(publicId, { resource_type: "video" });
+      const result = await cloudinary.uploader.destroy(publicId, {
+        resource_type: "video",
+      });
       if (result.result === "ok") {
         console.log(`✅ Deleted: ${publicId}`);
       } else if (result.result === "not found") {
