@@ -1136,24 +1136,26 @@ class VoiceController {
    * Check if the incoming caller has an assigned agent.
    * If so, log the call and return a direct Dial XML response.
    * Otherwise return the normal welcome/language-selection XML.
+   *
+   * NOTE: Direct agent routing is temporarily disabled — all callers go through
+   * the gate menu regardless of agent mapping. Re-enable by uncommenting below.
    */
   private async generateWelcomeWithAgentCheck(
     callerNumber: string,
     sessionId: string,
   ): Promise<string> {
-    const agentNumber = await getAgentForCaller(callerNumber);
-
-    if (agentNumber) {
-      logger.info(`Routing ${callerNumber} to agent ${agentNumber}`);
-      agentCallLogService
-        .logCall(agentNumber, callerNumber, sessionId)
-        .catch((err) => logger.error("Failed to log agent call:", err));
-      return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="woman">Please wait while we connect you to your agent.</Say>
-  <Dial phoneNumbers="${agentNumber}" record="true" />
-</Response>`;
-    }
+    // const agentNumber = await getAgentForCaller(callerNumber);
+    // if (agentNumber) {
+    //   logger.info(`Routing ${callerNumber} to agent ${agentNumber}`);
+    //   agentCallLogService
+    //     .logCall(agentNumber, callerNumber, sessionId)
+    //     .catch((err) => logger.error("Failed to log agent call:", err));
+    //   return `<?xml version="1.0" encoding="UTF-8"?>
+    // <Response>
+    //   <Say voice="woman">Please wait while we connect you to your agent.</Say>
+    //   <Dial phoneNumbers="${agentNumber}" record="true" />
+    // </Response>`;
+    // }
 
     return africasTalkingService.generateWelcomeResponse();
   }
